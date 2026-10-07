@@ -1,4 +1,4 @@
-$(call inherit-product-if-exists, vendor/micromax/q380/q380-vendor.mk)
+$(call inherit-product-if-exists, vendor/lge/b2lds/b2lds-vendor.mk)
 
 # The gps config appropriate for this device
 $(call inherit-product, device/common/gps/gps_us_supl.mk)
@@ -13,11 +13,11 @@ TARGET_SCREEN_WIDTH := 540
 
 # Specifying timezone
 PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
-persist.sys.timezone=Asia/Kolkata
+persist.sys.timezone=Asia/Tehran
 
 $(call inherit-product, frameworks/native/build/phone-xhdpi-1024-dalvik-heap.mk)
 
-LOCAL_PATH := device/micromax/q380
+LOCAL_PATH := device/lge/b2lds
 
 ifeq ($(TARGET_PREBUILT_KERNEL),)
 	LOCAL_KERNEL := $(LOCAL_PATH)/prebuilt/kernel
@@ -88,7 +88,7 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/init.aee.rc:root/init.aee.rc \
     $(LOCAL_PATH)/rootdir/init.mt6582.rc:root/init.mt6582.rc \
     $(LOCAL_PATH)/rootdir/init.modem.rc:root/init.modem.rc \
-    $(LOCAL_PATH)/rootdir/init.recovery.mt6582.rc:root/init.recovery.mt6582.rc \
+    $(LOCAL_PATH)/rootdir/init.recovery.b2lds.rc:root/init.recovery.b2lds.rc \
     $(LOCAL_PATH)/rootdir/init.mt6582.usb.rc:root/init.mt6582.usb.rc \
     $(LOCAL_PATH)/rootdir/init.fuse.rc:root/init.fuse.rc \
     $(LOCAL_PATH)/rootdir/factory_init.project.rc:root/factory_init.project.rc \
@@ -98,7 +98,7 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/rootdir/meta_init.project.rc:root/meta_init.project.rc \
     $(LOCAL_PATH)/rootdir/meta_init.rc:root/meta_init.rc \
     $(LOCAL_PATH)/rootdir/twrp.fstab:recovery/root/etc/twrp.fstab \
-    $(LOCAL_PATH)/rootdir/ueventd.mt6582.rc:root/ueventd.mt6582.rc \
+    $(LOCAL_PATH)/rootdir/ueventd.b2lds.rc:root/ueventd.b2lds.rc \
     $(LOCAL_PATH)/rootdir/sbin/busybox:root/sbin/busybox \
 
 # Permissions

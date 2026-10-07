@@ -1,8 +1,9 @@
-/misc		emmc	/dev/misc
-/data		ext4	/dev/block/mmcblk0p7
-/system		ext4	/dev/block/mmcblk0p5
-/cache		ext4	/dev/block/mmcblk0p6
-/boot		emmc	/dev/bootimg
-/recovery	emmc	/dev/recovery
-/emmc		vfat	/dev/block/mmcblk0p8
+/boot		emmc	/dev/block/platform/mtk-msdc.0/by-name/boot
+/recovery	emmc	/dev/block/platform/mtk-msdc.0/by-name/recovery
+/misc		emmc	/dev/block/platform/mtk-msdc.0/by-name/misc
+/system		ext4	/dev/block/platform/mtk-msdc.0/by-name/system
+/cache		ext4	/dev/block/platform/mtk-msdc.0/by-name/cache
+/data		ext4	/dev/block/platform/mtk-msdc.0/by-name/userdata
+/cust		ext4	/dev/block/platform/mtk-msdc.0/by-name/cust
+/persist_lg	ext4	/dev/block/platform/mtk-msdc.0/by-name/persist_lg
 /sdcard		vfat	/dev/block/mmcblk1p1	/dev/block/mmcblk1

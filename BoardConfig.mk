@@ -1,13 +1,13 @@
-LOCAL_PATH := device/micromax/q380
+LOCAL_PATH := device/lge/b2lds
 
 # inherit from the proprietary version
--include vendor/micromax/q380/BoardConfigVendor.mk
+-include vendor/lge/b2lds/BoardConfigVendor.mk
 
 # inherit from the proprietary version
--include vendor/micromax/q380/q380-vendor.mk
+-include vendor/lge/b2lds/b2lds-vendor.mk
 
 # GPS
-TARGET_SPECIFIC_HEADER_PATH := device/micromax/q380/include
+TARGET_SPECIFIC_HEADER_PATH := device/lge/b2lds/include
 
 # Platform
 TARGET_BOARD_PLATFORM := mt6582
@@ -24,11 +24,11 @@ TARGET_CPU_SMP := true
 TARGET_BOOTLOADER_BOARD_NAME := mt6582
 
 # Partition sizes
-BOARD_BOOTIMAGE_PARTITION_SIZE := 10485760
-BOARD_RECOVERYIMAGE_PARTITION_SIZE := 10485760
-BOARD_SYSTEMIMAGE_PARTITION_SIZE := 3221225472
-BOARD_USERDATAIMAGE_PARTITION_SIZE := 4046454784
-BOARD_CACHEIMAGE_PARTITION_SIZE := 209715200
+BOARD_BOOTIMAGE_PARTITION_SIZE := 16777216
+BOARD_RECOVERYIMAGE_PARTITION_SIZE := 16777216
+BOARD_SYSTEMIMAGE_PARTITION_SIZE := 2147483648
+BOARD_USERDATAIMAGE_PARTITION_SIZE := 4613734400
+BOARD_CACHEIMAGE_PARTITION_SIZE := 838860800
 BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
 BOARD_FLASH_BLOCK_SIZE := 131072
 
@@ -46,7 +46,7 @@ BOARD_CUSTOM_BOOTIMG_MK := $(LOCAL_PATH)/bootimg.mk
 TARGET_KMODULES := true
 
 # Assert
-TARGET_OTA_ASSERT_DEVICE := q380
+TARGET_OTA_ASSERT_DEVICE := b2lds
 
 COMMON_GLOBAL_CFLAGS += -DDISABLE_HW_ID_MATCH_CHECK
 TARGET_RUNNING_WITHOUT_SYNC_FRAMEWORK := true
@@ -55,7 +55,7 @@ TARGET_RUNNING_WITHOUT_SYNC_FRAMEWORK := true
 TARGET_CPU_MEMCPY_OPT_DISABLE := true
 
 # EGL
-BOARD_EGL_CFG := device/micromax/q380/configs/egl.cfg
+BOARD_EGL_CFG := device/lge/b2lds/configs/egl.cfg
 USE_OPENGL_RENDERER := true
 BOARD_EGL_WORKAROUND_BUG_10194508 := true
 
@@ -69,7 +69,7 @@ COMMON_GLOBAL_CPPFLAGS += -DMTK_HARDWARE
 ADDITIONAL_DEFAULT_PROPERTIES += ro.mount.fs=EXT4
 
 # RIL
-BOARD_RIL_CLASS := ../../../device/micromax/q380/ril/
+BOARD_RIL_CLASS := ../../../device/lge/b2lds/ril/
 
 BOARD_CONNECTIVITY_VENDOR := MediaTek
 BOARD_CONNECTIVITY_MODULE := conn_soc
@@ -89,7 +89,7 @@ WIFI_DRIVER_FW_PATH_P2P:=P2P
 BOARD_HAVE_BLUETOOTH := true
 BOARD_HAVE_BLUETOOTH_MTK := true
 BOARD_BLUETOOTH_DOES_NOT_USE_RFKILL := true
-BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := device/micromax/q380/bluetooth
+BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := device/lge/b2lds/bluetooth
 
 # TWRP
 RECOVERY_GRAPHICS_USE_LINELENGTH := true
@@ -121,7 +121,7 @@ TW_CUSTOM_CPU_TEMP_PATH := /sys/devices/virtual/thermal/thermal_zone1/temp
 TARGET_USE_CUSTOM_LUN_FILE_PATH := "/sys/devices/virtual/android_usb/android0/f_mass_storage/lun%d/file"
 
 BOARD_SEPOLICY_DIRS := \
-       device/micromax/q380/sepolicy
+       device/lge/b2lds/sepolicy
 
 BOARD_SEPOLICY_UNION := \
        device.te \
