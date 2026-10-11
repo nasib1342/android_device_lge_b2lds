@@ -10,8 +10,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
-    timeout-minutes: 360
+  runs-on: ubuntu-latest
+ Switch runner to ubuntu-latest
 
     steps:
       - name: Checkout device tree
