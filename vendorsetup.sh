@@ -1,2 +1,1 @@
-PRODUCT_MAKEFILES := \
-    $(LOCAL_DIR)/omni_b2lds.mk
+add_lunch_combo omni_b2lds-eng
