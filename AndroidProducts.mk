@@ -1,2 +1,2 @@
 PRODUCT_MAKEFILES := \
-    $(LOCAL_DIR)/device_b2lds.mk
+    $(LOCAL_DIR)/omni_b2lds.mk
