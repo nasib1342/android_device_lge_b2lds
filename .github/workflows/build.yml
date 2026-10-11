@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout device tree
@@ -26,10 +26,11 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y openjdk-8-jdk python2 git gnupg flex bison gperf \
+          sudo apt-get install -y openjdk-11-jdk python3 git gnupg flex bison gperf \
             build-essential zip curl zlib1g-dev gcc-multilib g++-multilib \
             libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev \
-            lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip
+            lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip \
+            python3-pip
 
       - name: Setup repo tool
         run: |
@@ -56,7 +57,7 @@ jobs:
 
       - name: Copy device tree
         run: |
-          mkdir -p ~/twrp/device/lge
+          mkdir -p ~/twrp/device/lge/b2lds
           cp -r $GITHUB_WORKSPACE/devicetree/* ~/twrp/device/lge/b2lds/
 
       - name: Build TWRP
@@ -70,7 +71,7 @@ jobs:
 
       - name: Upload TWRP image
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: twrp-b2lds
           path: ~/twrp/out/target/product/b2lds/recovery.img
