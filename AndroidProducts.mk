@@ -1,1 +1,2 @@
-PRODUCT_MAKEFILES := device/lge/b2lds/omni_b2lds1.mk
+PRODUCT_MAKEFILES := \
+    $(LOCAL_DIR)/omni_b2lds1.mk
