@@ -2,16 +2,10 @@ name: Build TWRP for LG-D690 b2lds
 
 on:
   workflow_dispatch:
-    inputs:
-      twrp_branch:
-        description: 'TWRP branch (twrp-5.1 or twrp-6.0)'
-        required: true
-        default: 'twrp-5.1'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
       - name: Checkout device tree
         uses: actions/checkout@v3
@@ -26,11 +20,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y openjdk-11-jdk python3 git gnupg flex bison gperf \
-            build-essential zip curl zlib1g-dev gcc-multilib g++-multilib \
-            libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev \
-            lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip \
-            python3-pip
+          sudo apt-get install -y openjdk-11-jdk python3 git gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip python3-pip
 
       - name: Setup repo tool
         run: |
@@ -48,7 +38,7 @@ jobs:
         run: |
           mkdir -p ~/twrp
           cd ~/twrp
-          ~/bin/repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git -b ${{ github.event.inputs.twrp_branch }} --depth=1
+          ~/bin/repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git -b twrp-5.1 --depth=1
 
       - name: Sync TWRP source
         run: |
