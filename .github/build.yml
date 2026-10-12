@@ -84,8 +84,12 @@ jobs:
           # Fix invalid OUT variable in BoardConfig.mk
           sed -i 's|$(OUT)/obj/KERNEL_OBJ/usr|$(OUT_DIR)/obj/KERNEL_OBJ/usr|' BoardConfig.mk
 
-          # Remove missing gps_us_supl.mk inherit line
-          sed -i '/gps_us_supl.mk/d' device_b2lds.mk
+          # Remove ALL gps_us_supl references from all .mk files
+          echo "=== Files containing gps_us_supl BEFORE fix ==="
+          grep -rln 'gps_us_supl' . || echo "No matches found"
+          find . -name '*.mk' -exec sed -i '/gps_us_supl/d' {} \;
+          echo "=== Files containing gps_us_supl AFTER fix ==="
+          grep -rln 'gps_us_supl' . || echo "All references removed successfully"
 
           # Register the product
           cat > AndroidProducts.mk <<'EOF'
@@ -109,9 +113,6 @@ jobs:
 
           echo "=== BoardConfig output fix ==="
           grep -n 'KERNEL_OBJ/usr' BoardConfig.mk
-
-          echo "=== device_b2lds.mk after gps removal ==="
-          grep -n 'gps' device_b2lds.mk || echo "No gps references found - good"
 
           echo "=== AndroidProducts.mk ==="
           cat AndroidProducts.mk
