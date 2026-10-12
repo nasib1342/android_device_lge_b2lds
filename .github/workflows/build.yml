@@ -38,12 +38,19 @@ jobs:
             mv "$f" "$newname"
           done
           grep -rl 'b21ds' . | xargs sed -i 's/b21ds/b2lds/g' || true
-          echo "Typo fixed. Files now:"
-          ls -la
       - name: Fix Python 2 syntax
         run: sed -i 's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' ~/twrp/build/tools/roomservice.py
       - name: Build TWRP
-        run: cd ~/twrp && source build/envsetup.sh && export ALLOW_MISSING_DEPENDENCIES=true && export LC_ALL=C && lunch omni_b2lds-eng && make -j8 recoveryimage
+        run: |
+          export JAVA_HOME=$JAVA_HOME_8_X64
+          echo "JAVA_HOME is: $JAVA_HOME"
+          ls -la $JAVA_HOME/lib/tools.jar || echo "tools.jar not found!"
+          cd ~/twrp
+          source build/envsetup.sh
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+          lunch omni_b2lds-eng
+          make -j8 recoveryimage
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
