@@ -27,14 +27,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python2 git gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip
 
-      - name: Verify Java
-        run: |
-          echo "JAVA_HOME=$JAVA_HOME"
-          export ANDROID_JAVA_HOME="$JAVA_HOME"
-          java -version
-          test -f "$ANDROID_JAVA_HOME/lib/tools.jar" || { echo "ERROR: JDK 8 tools.jar not found"; exit 1; }
-          echo "tools.jar found successfully"
-
       - name: Setup repo
         run: |
           mkdir -p "$HOME/bin"
@@ -56,70 +48,134 @@ jobs:
       - name: Sync TWRP source
         run: |
           cd "$HOME/twrp"
-          for i in 1 2 3 4 5; do
-            echo "=== Attempt $i: repo sync ==="
+          for i in 1 2 3; do
             "$HOME/bin/repo" sync -j4 --force-sync --no-clone-bundle --no-tags && break
-            echo "=== Sync failed, retrying in 60 seconds ==="
             sleep 60
           done
 
-      - name: Copy and Fix Device Tree
+      - name: Create GPS files
         run: |
-          mkdir -p "$HOME/twrp/device/lge/b2lds"
-          cp -r "$GITHUB_WORKSPACE/devicetree/"* "$HOME/twrp/device/lge/b2lds/"
-          cd "$HOME/twrp/device/lge/b2lds"
+          mkdir -p "$HOME/twrp/device/common/gps"
+          echo 'PRODUCT_COPY_FILES := device/common/gps/gps.conf_US_SUPL:system/etc/gps.conf' > "$HOME/twrp/device/common/gps/gps_us_supl.mk"
+          echo 'NTP_SERVER=time.gpsonextra.net' > "$HOME/twrp/device/common/gps/gps.conf_US_SUPL"
+          ls -la "$HOME/twrp/device/common/gps/"
 
-          # Fix b21ds typo in file names
-          find . -depth -name '*b21ds*' -exec sh -c '
-            for f do
-              mv "$f" "$(printf "%s" "$f" | sed "s/b21ds/b2lds/g")"
-            done
-          ' sh {} +
+      - name: Create Device Tree (minimal, no AOSP inherit)
+        run: |
+          TARGET_DIR="$HOME/twrp/device/lge/b2lds"
+          mkdir -p "$TARGET_DIR"
+          mkdir -p "$TARGET_DIR/prebuilt"
+          mkdir -p "$TARGET_DIR/recovery"
+          
+          # Copy prebuilt kernel and recovery.fstab from repo
+          cp -r "$GITHUB_WORKSPACE/devicetree/prebuilt/"* "$TARGET_DIR/prebuilt/" 2>/dev/null || true
+          cp -r "$GITHUB_WORKSPACE/devicetree/recovery/"* "$TARGET_DIR/recovery/" 2>/dev/null || true
+          
+          cd "$TARGET_DIR"
 
-          # Fix b21ds typo in content
-          grep -rl 'b21ds' . | xargs -r sed -i 's/b21ds/b2lds/g'
+          # Remove ALL old .mk files from repo copy
+          rm -f *.mk 2>/dev/null || true
 
-          # Fix invalid OUT variable in BoardConfig.mk
-          sed -i 's|$(OUT)/obj/KERNEL_OBJ/usr|$(OUT_DIR)/obj/KERNEL_OBJ/usr|' BoardConfig.mk
+          # AndroidProducts.mk
+          printf 'PRODUCT_MAKEFILES := \\\n    $(LOCAL_DIR)/omni_b2lds.mk\n' > AndroidProducts.mk
 
-          # Remove ALL gps_us_supl references from all files using awk
-          echo "=== BEFORE: Files containing gps_us_supl ==="
-          grep -rln 'gps_us_supl' . || echo "none"
-          find . -type f | while read f; do
-            if grep -q 'gps_us_supl' "$f" 2>/dev/null; then
-              echo "Removing from: $f"
-              awk '!/gps_us_supl/' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-            fi
-          done
-          echo "=== AFTER: Files containing gps_us_supl ==="
-          grep -rln 'gps_us_supl' . || echo "All removed successfully"
+          # omni_b2lds.mk - NO inherit-product at all!
+          cat > omni_b2lds.mk <<'MKEOF'
+# Minimal product spec - no inherit to avoid missing AOSP files
+PRODUCT_NAME := omni_b2lds
+PRODUCT_DEVICE := b2lds
+PRODUCT_BRAND := lge
+PRODUCT_MODEL := LG-D690
+PRODUCT_MANUFACTURER := lge
+PRODUCT_PACKAGES := \
+    recovery \
+    e2fsck_static \
+    mke2fs_static \
+    tune2fs_static \
+    twrp
 
-          # Show device_b2lds.mk content for verification
-          echo "=== device_b2lds.mk content ==="
-          cat device_b2lds.mk
+PRODUCT_COPY_FILES := \
+    device/lge/b2lds/recovery/recovery.fstab:root/etc/recovery.fstab
 
-          # Register the product
-          cat > AndroidProducts.mk <<'EOF'
-          PRODUCT_MAKEFILES := \
-              $(LOCAL_DIR)/omni_b2lds.mk
-          EOF
+$(call inherit-product, vendor/omni/config/common.mk)
+MKEOF
 
-          # Define the OmniROM product
-          cat > omni_b2lds.mk <<'EOF'
-          $(call inherit-product, device/lge/b2lds/device_b2lds.mk)
-          $(call inherit-product, vendor/omni/config/common.mk)
+          # vendorsetup.sh
+          printf 'add_lunch_combo omni_b2lds-eng\n' > vendorsetup.sh
 
-          PRODUCT_NAME := omni_b2lds
-          PRODUCT_DEVICE := b2lds
-          PRODUCT_BRAND := lge
-          PRODUCT_MODEL := LG-D690
-          PRODUCT_MANUFACTURER := lge
-          EOF
+          # BoardConfig.mk
+          cat > BoardConfig.mk <<'MKEOF'
+LOCAL_PATH := device/lge/b2lds
 
-          echo "add_lunch_combo omni_b2lds-eng" > vendorsetup.sh
+TARGET_BOARD_PLATFORM := mt6582
+TARGET_NO_BOOTLOADER := true
+TARGET_ARCH := arm
+TARGET_CPU_ABI := armeabi-v7a
+TARGET_CPU_ABI2 := armeabi
+TARGET_ARCH_VARIANT := armv7-a-neon
+TARGET_CPU_VARIANT := cortex-a7
+TARGET_BOOTLOADER_BOARD_NAME := mt6582
 
-          echo "=== Final device files ==="
+BOARD_BOOTIMAGE_PARTITION_SIZE := 16777216
+BOARD_RECOVERYIMAGE_PARTITION_SIZE := 16777216
+BOARD_SYSTEMIMAGE_PARTITION_SIZE := 2147483648
+BOARD_USERDATAIMAGE_PARTITION_SIZE := 4613734400
+BOARD_CACHEIMAGE_PARTITION_SIZE := 838860800
+BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
+BOARD_FLASH_BLOCK_SIZE := 131072
+
+TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/prebuilt/kernel
+TARGET_RECOVERY_FSTAB := $(LOCAL_PATH)/recovery/recovery.fstab
+
+BOARD_KERNEL_BASE := 0x80000000
+BOARD_KERNEL_PAGESIZE := 2048
+BOARD_MKBOOTIMG_ARGS := --base 0x80000000 --pagesize 2048 --kernel_offset 0x00008000 --ramdisk_offset 0x04000000 --tags_offset 0x00000100 --mtk 1
+
+BOARD_HAS_MTK_HARDWARE := true
+MTK_HARDWARE := true
+
+TARGET_USERIMAGES_USE_EXT4 := true
+BOARD_HAS_LARGE_FILESYSTEM := true
+BOARD_HAS_NO_SELECT_BUTTON := true
+
+TW_THEME := portrait_mdpi
+TW_BRIGHTNESS_PATH := /sys/class/leds/lcd-backlight/brightness
+TW_MAX_BRIGHTNESS := 255
+TW_SCREEN_BLANK_ON_BOOT := true
+RECOVERY_GRAPHICS_USE_LINELENGTH := true
+DEVICE_RESOLUTION := 540x960
+TARGET_SCREEN_WIDTH := 540
+TARGET_SCREEN_HEIGHT := 960
+MKEOF
+
+          echo "=================== FINAL FILES ==================="
           ls -la
+          echo ""
+          echo "=================== omni_b2lds.mk ==================="
+          cat omni_b2lds.mk
+          echo ""
+          echo "=================== Check gps in device tree ==================="
+          grep -rn 'gps_us_supl' . && echo "!!! FOUND !!!" || echo "OK: clean"
+
+      - name: Check vendor/omni exists
+        run: |
+          echo "=== vendor/omni/config/common.mk ==="
+          if [ -f "$HOME/twrp/vendor/omni/config/common.mk" ]; then
+            echo "EXISTS!"
+            head -20 "$HOME/twrp/vendor/omni/config/common.mk"
+          else
+            echo "MISSING! Creating minimal vendor/omni/config/common.mk"
+            mkdir -p "$HOME/twrp/vendor/omni/config"
+            cat > "$HOME/twrp/vendor/omni/config/common.mk" <<'MKEOF'
+# Minimal TWRP common config
+TARGET_RECOVERY_PIXEL_FORMAT := "RGBX_8888"
+RECOVERY_GRAPHICS_USE_LINELENGTH := true
+TW_INCLUDE_CRYPTO := false
+TW_NO_EXFAT_FUSE := true
+TW_SCREEN_BLANK_ON_BOOT := true
+MKEOF
+            cat "$HOME/twrp/vendor/omni/config/common.mk"
+          fi
 
       - name: Fix Python 2 syntax
         run: |
@@ -128,7 +184,6 @@ jobs:
       - name: Build TWRP
         run: |
           cd "$HOME/twrp"
-
           export JAVA_HOME="$JAVA_HOME"
           export ANDROID_JAVA_HOME="$JAVA_HOME"
           export PATH="$JAVA_HOME/bin:$PATH"
@@ -136,8 +191,11 @@ jobs:
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
 
-          echo "=== Final check for gps_us_supl ==="
-          grep -rn 'gps_us_supl' device/lge/b2lds/ || echo "OK: no references"
+          echo "=== gps file check ==="
+          ls -la device/common/gps/
+          echo ""
+          echo "=== product file check ==="
+          ls -la device/lge/b2lds/
 
           source build/envsetup.sh
           lunch omni_b2lds-eng
