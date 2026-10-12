@@ -19,7 +19,12 @@ jobs:
         run: |
           java -version
           echo "JAVA_HOME=$JAVA_HOME"
-          ls -la $JAVA_HOME/lib/tools.jar || echo "ERROR: tools.jar not found!"
+          ls -la $JAVA_HOME/lib/tools.jar
+
+      - name: Checkout device tree
+        uses: actions/checkout@v4
+        with:
+          path: devicetree
 
       - name: Setup repo
         run: |
@@ -39,29 +44,30 @@ jobs:
           mkdir -p ~/twrp && cd ~/twrp
           ~/bin/repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git -b twrp-5.1 --depth=1
 
-      - name: Add device tree to local manifest
-        run: |
-          mkdir -p ~/twrp/.repo/local_manifests
-          cat > ~/twrp/.repo/local_manifests/b2lds.xml <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <manifest>
-            <project name="nasib1342/android_device_lge_b2lds" path="device/lge/b2lds" remote="github" revision="main" />
-          </manifest>
-          EOF
-          echo "=== Local manifest content ===" && cat ~/twrp/.repo/local_manifests/b2lds.xml
-
       - name: Sync TWRP source
         run: cd ~/twrp && ~/bin/repo sync -j8 --force-sync --no-clone-bundle --no-tags
 
-      - name: Fix b21ds typo
+      - name: Copy and Fix device tree
         run: |
+          mkdir -p ~/twrp/device/lge/b2lds
+          cp -r $GITHUB_WORKSPACE/devicetree/* ~/twrp/device/lge/b2lds/
           cd ~/twrp/device/lge/b2lds
-          for f in $(find . -name '*b21ds*'); do mv "$f" "$(echo $f | sed 's/b21ds/b2lds/g')"; done
+          # رفع تایپی b21ds در نام فایل‌ها
+          for f in $(find . -name '*b21ds*'); do
+            newname=$(echo "$f" | sed 's/b21ds/b2lds/g')
+            mv "$f" "$newname"
+          done
+          # رفع تایپی b21ds در محتوای فایل‌ها
           grep -rl 'b21ds' . | xargs sed -i 's/b21ds/b2lds/g' || true
-          echo "=== FILES ===" && ls -la
-          echo "=== AndroidProducts.mk ===" && cat AndroidProducts.mk
-          echo "=== omni_b2lds.mk ===" && cat omni_b2lds.mk
-          echo "=== vendorsetup.sh ===" && cat vendorsetup.sh
+          
+          # بازنویسی فایل‌های حیاتی برای اطمینان از مسیرها
+          printf 'PRODUCT_MAKEFILES := device/lge/b2lds/omni_b2lds.mk\n' > AndroidProducts.mk
+          printf '$(call inherit-product, device/lge/b2lds/device_b2lds.mk)\n$(call inherit-product, vendor/omni/config/common.mk)\n\nPRODUCT_NAME := omni_b2lds\nPRODUCT_DEVICE := b2lds\nPRODUCT_BRAND := lge\nPRODUCT_MODEL := LG-D690\nPRODUCT_MANUFACTURER := lge\n' > omni_b2lds.mk
+          printf 'add_lunch_combo omni_b2lds-eng\n' > vendorsetup.sh
+          
+          echo "=== DEBUG: AndroidProducts.mk ===" && cat AndroidProducts.mk
+          echo "=== DEBUG: omni_b2lds.mk ===" && cat omni_b2lds.mk
+          echo "=== DEBUG: vendorsetup.sh ===" && cat vendorsetup.sh
 
       - name: Fix Python 2 syntax
         run: sed -i 's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' ~/twrp/build/tools/roomservice.py
