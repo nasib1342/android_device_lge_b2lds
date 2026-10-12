@@ -219,9 +219,14 @@ jobs:
           source build/envsetup.sh
           lunch omni_b2lds-eng
 
-          echo "=== Building MTK boot-image tool first ==="
-          make -j4 mtkbootimg
-          test -x "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
+          echo "=== Building MTK boot-image tool from its directory ==="
+          mmm device/lge/b2lds/mtkbootimg
+          test -x "$OUT_DIR/host/linux-x86/bin/mtkbootimg" || {
+            echo "ERROR: mtkbootimg executable was not generated"
+            exit 1
+          }
+          echo "mtkbootimg executable found"
+          grep -n 'BOARD_CUSTOM_MKBOOTIMG' device/lge/b2lds/BoardConfig.mk
 
           echo "=== Building TWRP recovery image ==="
           make -j4 recoveryimage
