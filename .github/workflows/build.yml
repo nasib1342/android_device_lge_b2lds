@@ -45,6 +45,18 @@ jobs:
           cd "$HOME/twrp"
           "$HOME/bin/repo" init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git -b twrp-5.1 --depth=1
 
+      - name: Add device/common to local manifest
+        run: |
+          mkdir -p "$HOME/twrp/.repo/local_manifests"
+          cat > "$HOME/twrp/.repo/local_manifests/device_common.xml" <<'XMLEOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <manifest>
+            <project name="platform/device/common" path="device/common" remote="aosp" revision="android-5.1.1_r28" />
+          </manifest>
+          XMLEOF
+          echo "=== Local manifest created ==="
+          cat "$HOME/twrp/.repo/local_manifests/device_common.xml"
+
       - name: Sync TWRP source
         run: |
           cd "$HOME/twrp"
@@ -53,14 +65,15 @@ jobs:
             sleep 60
           done
 
-      - name: Create missing gps files
+      - name: Verify gps_us_supl.mk exists
         run: |
-          # Create the missing file in TWRP source
-          mkdir -p "$HOME/twrp/device/common/gps"
-          printf 'PRODUCT_COPY_FILES := device/common/gps/gps.conf_US_SUPL:system/etc/gps.conf\n' > "$HOME/twrp/device/common/gps/gps_us_supl.mk"
-          printf 'NTP_SERVER=time.gpsonextra.net\nXTRA_SERVER_1=http://xtra1.gpsonextra.net/xtra.bin\n' > "$HOME/twrp/device/common/gps/gps.conf_US_SUPL"
-          echo "=== Created gps files ==="
-          ls -la "$HOME/twrp/device/common/gps/"
+          if [ -f "$HOME/twrp/device/common/gps/gps_us_supl.mk" ]; then
+            echo "SUCCESS: gps_us_supl.mk found!"
+            cat "$HOME/twrp/device/common/gps/gps_us_supl.mk"
+          else
+            echo "ERROR: gps_us_supl.mk still missing!"
+            exit 1
+          fi
 
       - name: Copy and Fix Device Tree
         run: |
@@ -69,20 +82,13 @@ jobs:
           cp -r "$GITHUB_WORKSPACE/devicetree/"* "$TARGET_DIR/"
           cd "$TARGET_DIR"
 
-          # Fix b21ds typo in file names
           find . -depth -name '*b21ds*' -exec sh -c '
             for f do
               mv "$f" "$(printf "%s" "$f" | sed "s/b21ds/b2lds/g")"
             done
           ' sh {} +
-
-          # Fix b21ds typo in content
           grep -rl 'b21ds' . | xargs -r sed -i 's/b21ds/b2lds/g'
 
-          # Remove any reference to gps_us_supl in all device tree files
-          find . -type f -exec sed -i '/gps_us_supl/d' {} \;
-
-          # Overwrite product files to be safe
           cat > AndroidProducts.mk <<'EOF'
           PRODUCT_MAKEFILES := \
               $(LOCAL_DIR)/omni_b2lds.mk
@@ -101,10 +107,6 @@ jobs:
 
           echo "add_lunch_combo omni_b2lds-eng" > vendorsetup.sh
 
-          # Final check
-          echo "=== Any gps_us_supl left? ==="
-          grep -rn 'gps_us_supl' . || echo "None"
-
       - name: Fix Python 2 syntax
         run: |
           sed -i 's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' "$HOME/twrp/build/tools/roomservice.py"
@@ -118,9 +120,6 @@ jobs:
           export OUT_DIR=out
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
-
-          # Verify gps file exists
-          test -f device/common/gps/gps_us_supl.mk && echo "gps_us_supl.mk exists" || echo "MISSING!"
 
           source build/envsetup.sh
           lunch omni_b2lds-eng
