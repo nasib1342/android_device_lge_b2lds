@@ -4,13 +4,25 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout Device Tree
+        uses: actions/checkout@v4
+        with:
+          path: devicetree
+
       - name: Free space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
 
-      - name: Install deps
+      # مرحله ۱: نصب پیش‌نیازها و JDK 8 به صورت صریح
+      - name: Install deps and JDK 8
         run: |
           sudo apt-get update
-          sudo apt-get install -y openjdk-8-jdk python2 git gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip
+          sudo apt-get install -y python2 git gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip openjdk-8-jdk
+          # اطمینان از اینکه JDK 8 در PATH قرار دارد
+          sudo update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java
+          sudo update-alternatives --set javac /usr/lib/jvm/java-8-openjdk-amd64/bin/javac
+          # تنظیم متغیرهای محیطی برای دسترسی به tools.jar
+          echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-8-openjdk-amd64/bin" >> $GITHUB_PATH
 
       - name: Setup repo
         run: |
@@ -19,48 +31,63 @@ jobs:
           chmod a+x ~/bin/repo
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: Config git
-        run: git config --global user.name "Actions" && git config --global user.email "a@b.c"
-
-      - name: Init TWRP
+      - name: Configure git
         run: |
-          mkdir -p ~/twrp && cd ~/twrp
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Init TWRP source
+        run: |
+          mkdir -p ~/twrp
+          cd ~/twrp
           ~/bin/repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git -b twrp-5.1 --depth=1
 
-      - name: Add device tree to local manifest
+      - name: Sync TWRP source
         run: |
-          mkdir -p ~/twrp/.repo/local_manifests
-          cat > ~/twrp/.repo/local_manifests/b2lds.xml <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <manifest>
-            <project name="nasib1342/android_device_lge_b2lds" path="device/lge/b2lds" remote="github" revision="main" />
-          </manifest>
-          EOF
-          cat ~/twrp/.repo/local_manifests/b2lds.xml
+          cd ~/twrp
+          ~/bin/repo sync -j8 --force-sync --no-clone-bundle --no-tags
 
-      - name: Sync TWRP
-        run: cd ~/twrp && ~/bin/repo sync -j8 --force-sync --no-clone-bundle --no-tags
-
-      - name: Fix b21ds typo
+      # مرحله ۲: کپی و اصلاح خودکار Device Tree
+      - name: Copy and Fix Device Tree
         run: |
+          mkdir -p ~/twrp/device/lge/b2lds
+          cp -r $GITHUB_WORKSPACE/devicetree/* ~/twrp/device/lge/b2lds/
           cd ~/twrp/device/lge/b2lds
+          
+          # ۱. اصلاح خودکار تایپی b21ds به b2lds در نام فایل‌ها و محتوا
           for f in $(find . -name '*b21ds*'); do mv "$f" "$(echo $f | sed 's/b21ds/b2lds/g')"; done
           grep -rl 'b21ds' . | xargs sed -i 's/b21ds/b2lds/g' || true
-          echo "=== FILES ===" && ls -la
+          
+          # ۲. بازنویسی فایل‌های حیاتی برای اطمینان از صحت مسیرها
+          echo "PRODUCT_MAKEFILES := device/lge/b2lds/omni_b2lds.mk" > AndroidProducts.mk
+          cat > omni_b2lds.mk <<'EOF'
+          $(call inherit-product, device/lge/b2lds/device_b2lds.mk)
+          $(call inherit-product, vendor/omni/config/common.mk)
+          
+          PRODUCT_NAME := omni_b2lds
+          PRODUCT_DEVICE := b2lds
+          PRODUCT_BRAND := lge
+          PRODUCT_MODEL := LG-D690
+          PRODUCT_MANUFACTURER := lge
+          EOF
+          echo "add_lunch_combo omni_b2lds-eng" > vendorsetup.sh
+          
+          echo "=== Files after fix ===" && ls -la
           echo "=== AndroidProducts.mk ===" && cat AndroidProducts.mk
           echo "=== omni_b2lds.mk ===" && cat omni_b2lds.mk
-          echo "=== vendorsetup.sh ===" && cat vendorsetup.sh
 
-      - name: Fix Python 2
+      - name: Fix Python 2 syntax
         run: sed -i 's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' ~/twrp/build/tools/roomservice.py
 
+      # مرحله ۳: Build نهایی با تنظیم صریح محیط
       - name: Build TWRP
         run: |
           export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
           export PATH=$JAVA_HOME/bin:$PATH
           echo "JAVA_HOME=$JAVA_HOME"
           java -version
-          ls -la $JAVA_HOME/lib/tools.jar
+          ls -la $JAVA_HOME/lib/tools.jar || echo "ERROR: tools.jar not found!"
+          
           cd ~/twrp
           source build/envsetup.sh
           export ALLOW_MISSING_DEPENDENCIES=true
@@ -68,7 +95,7 @@ jobs:
           lunch omni_b2lds-eng
           make -j8 recoveryimage
 
-      - name: Upload
+      - name: Upload TWRP
         if: always()
         uses: actions/upload-artifact@v4
         with:
