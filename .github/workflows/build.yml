@@ -240,6 +240,23 @@ jobs:
           echo "mtkbootimg executable built"
           grep -n 'BOARD_CUSTOM_MKBOOTIMG' device/lge/b2lds/BoardConfig.mk
 
+          echo "=== Building AOSP mkbootfs host tool ==="
+          test -f system/core/cpio/Android.mk || {
+            echo "ERROR: system/core/cpio/Android.mk is missing"
+            exit 1
+          }
+          test -f system/core/cpio/mkbootfs.c || {
+            echo "ERROR: system/core/cpio/mkbootfs.c is missing"
+            exit 1
+          }
+          mmm system/core/cpio
+          test -x "$OUT_DIR/host/linux-x86/bin/mkbootfs" || {
+            echo "ERROR: mkbootfs executable was not generated"
+            exit 1
+          }
+          "$OUT_DIR/host/linux-x86/bin/mkbootfs" 2>&1 | head -n 3 || true
+          echo "mkbootfs executable built"
+
           echo "=== Building TWRP recovery image ==="
           make -j4 recoveryimage
 
