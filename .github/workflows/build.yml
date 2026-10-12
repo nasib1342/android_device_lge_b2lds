@@ -65,21 +65,24 @@ jobs:
             -b twrp-5.1 --depth=1
 
       - name: Sync TWRP source
+            - name: Init TWRP source
+        run: |
+          mkdir -p "$HOME/twrp"
+          cd "$HOME/twrp"
+          "$HOME/bin/repo" init \
+            -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git \
+            -b twrp-5.1 --depth=1
+
+      - name: Sync TWRP source
         run: |
           cd "$HOME/twrp"
           for attempt in 1 2 3 4; do
             echo "Sync attempt $attempt of 4"
-            if "$HOME/bin/repo" sync -j2 \
-              --force-sync --no-clone-bundle --no-tags; then
-              echo "Source sync completed"
+            if "$HOME/bin/repo" sync -j2 --force-sync --no-clone-bundle --no-tags; then
               exit 0
             fi
-            echo "Sync failed; retrying in 25 seconds"
-            if [ "$attempt" -lt 4 ]; then
-              sleep 25
-            fi
+            sleep 20
           done
-          echo "ERROR: Source download failed after 4 attempts"
           exit 1
 
       - name: Copy and Fix Device Tree
