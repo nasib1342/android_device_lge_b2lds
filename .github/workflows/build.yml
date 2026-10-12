@@ -218,7 +218,8 @@ jobs:
 
           source build/envsetup.sh
           lunch omni_b2lds-eng
-
+          mmm build/tools/acp
+          test -x "$OUT_DIR/host/linux-x86/bin/acp"
           echo "=== Building MTK boot-image tool directly ==="
           test -f device/lge/b2lds/mtkbootimg/mkbootimg.c
           test -f device/lge/b2lds/mtkbootimg/bootimg.h
