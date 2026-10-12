@@ -4,23 +4,13 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
-        with:
-          path: devicetree
-
-      - name: Setup JDK 8
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '8'
-
       - name: Free space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
 
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y python2 git gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip
+          sudo apt-get install -y openjdk-8-jdk python2 git gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip
 
       - name: Setup repo
         run: |
@@ -37,30 +27,40 @@ jobs:
           mkdir -p ~/twrp && cd ~/twrp
           ~/bin/repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git -b twrp-5.1 --depth=1
 
+      - name: Add device tree to local manifest
+        run: |
+          mkdir -p ~/twrp/.repo/local_manifests
+          cat > ~/twrp/.repo/local_manifests/b2lds.xml <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <manifest>
+            <project name="nasib1342/android_device_lge_b2lds" path="device/lge/b2lds" remote="github" revision="main" />
+          </manifest>
+          EOF
+          cat ~/twrp/.repo/local_manifests/b2lds.xml
+
       - name: Sync TWRP
         run: cd ~/twrp && ~/bin/repo sync -j8 --force-sync --no-clone-bundle --no-tags
 
-      - name: Copy device tree
+      - name: Fix b21ds typo
         run: |
-          mkdir -p ~/twrp/device/lge/b2lds
-          cp -r $GITHUB_WORKSPACE/devicetree/* ~/twrp/device/lge/b2lds/
           cd ~/twrp/device/lge/b2lds
           for f in $(find . -name '*b21ds*'); do mv "$f" "$(echo $f | sed 's/b21ds/b2lds/g')"; done
           grep -rl 'b21ds' . | xargs sed -i 's/b21ds/b2lds/g' || true
           echo "=== FILES ===" && ls -la
           echo "=== AndroidProducts.mk ===" && cat AndroidProducts.mk
           echo "=== omni_b2lds.mk ===" && cat omni_b2lds.mk
+          echo "=== vendorsetup.sh ===" && cat vendorsetup.sh
 
       - name: Fix Python 2
         run: sed -i 's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' ~/twrp/build/tools/roomservice.py
 
       - name: Build TWRP
         run: |
-          export JAVA_HOME=$JAVA_HOME
+          export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
           export PATH=$JAVA_HOME/bin:$PATH
           echo "JAVA_HOME=$JAVA_HOME"
           java -version
-          ls -la $JAVA_HOME/lib/tools.jar || echo "tools.jar missing!"
+          ls -la $JAVA_HOME/lib/tools.jar
           cd ~/twrp
           source build/envsetup.sh
           export ALLOW_MISSING_DEPENDENCIES=true
