@@ -45,6 +45,17 @@ jobs:
       - name: Fix Python 2 syntax
         run: sed -i 's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' ~/twrp/build/tools/roomservice.py
 
+      - name: DEBUG - List device tree
+        run: |
+          echo "=== Files in device/lge/b2lds ==="
+          ls -la ~/twrp/device/lge/b2lds/
+          echo "=== AndroidProducts.mk ==="
+          cat ~/twrp/device/lge/b2lds/AndroidProducts.mk
+          echo "=== omni_b2lds.mk ==="
+          cat ~/twrp/device/lge/b2lds/omni_b2lds.mk
+          echo "=== vendorsetup.sh ==="
+          cat ~/twrp/device/lge/b2lds/vendorsetup.sh
+
       - name: Build TWRP
         run: |
           export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
