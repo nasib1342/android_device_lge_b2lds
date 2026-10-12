@@ -125,25 +125,38 @@ jobs:
           from pathlib import Path
 
           p = Path("BoardConfig.mk")
-          old = "$(shell mkdir -p $(OUT)/obj/KERNEL_OBJ/usr)"
-          fixed = "$(shell mkdir -p out/obj/KERNEL_OBJ/usr)"
-          lines = p.read_text().splitlines()
-          changed = False
-          new_lines = []
-          for line in lines:
-              if line.strip() == old:
-                  new_lines.append(fixed)
-                  changed = True
-              else:
-                  new_lines.append(line)
-          p.write_text("\n".join(new_lines) + "\n")
-          if changed:
-              print("Fixed BoardConfig.mk path: using relative out/ instead of /obj")
-          elif any(line.strip() == fixed for line in lines):
-              print("BoardConfig.mk output path already fixed")
+          text = p.read_text()
+
+          # Keep the old kernel-output workaround inside the configured OUT_DIR.
+          old_out = "$(shell mkdir -p $(OUT)/obj/KERNEL_OBJ/usr)"
+          new_out = "$(shell mkdir -p $(OUT_DIR)/obj/KERNEL_OBJ/usr)"
+          if old_out in text:
+              text = text.replace(old_out, new_out)
+              print("Fixed BoardConfig.mk KERNEL_OBJ output path")
+          elif new_out in text:
+              print("BoardConfig.mk KERNEL_OBJ output path already fixed")
           else:
-              print("No legacy OUT mkdir line found; continuing")
+              print("No legacy KERNEL_OBJ mkdir line found; continuing")
+
+          # The custom boot-image tool must be referenced by its actual build output.
+          old_mtk = "BOARD_CUSTOM_MKBOOTIMG := mtkbootimg"
+          new_mtk = "BOARD_CUSTOM_MKBOOTIMG = $(HOST_OUT_EXECUTABLES)/mtkbootimg"
+          if old_mtk in text:
+              text = text.replace(old_mtk, new_mtk)
+              print("Fixed BOARD_CUSTOM_MKBOOTIMG to the host executable path")
+          elif new_mtk in text:
+              print("BOARD_CUSTOM_MKBOOTIMG path already fixed")
+          else:
+              raise SystemExit("ERROR: expected BOARD_CUSTOM_MKBOOTIMG setting was not found")
+
+          p.write_text(text)
           PY
+
+          echo "=== MTK boot-image tool source files ==="
+          test -f mtkbootimg/Android.mk
+          test -f mtkbootimg/mkbootimg.c
+          test -f mtkbootimg/bootimg.h
+          grep -n 'BOARD_CUSTOM_MKBOOTIMG' BoardConfig.mk
 
           cat > AndroidProducts.mk <<'MAKEEOF'
           PRODUCT_MAKEFILES := device/lge/b2lds/omni_b2lds.mk
@@ -205,6 +218,12 @@ jobs:
 
           source build/envsetup.sh
           lunch omni_b2lds-eng
+
+          echo "=== Building MTK boot-image tool first ==="
+          make -j4 mtkbootimg
+          test -x "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
+
+          echo "=== Building TWRP recovery image ==="
           make -j4 recoveryimage
 
       - name: Upload TWRP
