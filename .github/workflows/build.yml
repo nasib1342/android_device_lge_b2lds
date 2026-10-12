@@ -39,7 +39,7 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      - name: Init TWRP source
+      - name: Init TWRP source (5.1)
         run: |
           mkdir -p "$HOME/twrp"
           cd "$HOME/twrp"
@@ -53,129 +53,57 @@ jobs:
             sleep 60
           done
 
-      - name: Create GPS files
+      - name: Create missing gps files
         run: |
+          # Create the missing file in TWRP source
           mkdir -p "$HOME/twrp/device/common/gps"
-          echo 'PRODUCT_COPY_FILES := device/common/gps/gps.conf_US_SUPL:system/etc/gps.conf' > "$HOME/twrp/device/common/gps/gps_us_supl.mk"
-          echo 'NTP_SERVER=time.gpsonextra.net' > "$HOME/twrp/device/common/gps/gps.conf_US_SUPL"
+          printf 'PRODUCT_COPY_FILES := device/common/gps/gps.conf_US_SUPL:system/etc/gps.conf\n' > "$HOME/twrp/device/common/gps/gps_us_supl.mk"
+          printf 'NTP_SERVER=time.gpsonextra.net\nXTRA_SERVER_1=http://xtra1.gpsonextra.net/xtra.bin\n' > "$HOME/twrp/device/common/gps/gps.conf_US_SUPL"
+          echo "=== Created gps files ==="
           ls -la "$HOME/twrp/device/common/gps/"
 
-      - name: Create Device Tree (minimal, no AOSP inherit)
+      - name: Copy and Fix Device Tree
         run: |
           TARGET_DIR="$HOME/twrp/device/lge/b2lds"
           mkdir -p "$TARGET_DIR"
-          mkdir -p "$TARGET_DIR/prebuilt"
-          mkdir -p "$TARGET_DIR/recovery"
-          
-          # Copy prebuilt kernel and recovery.fstab from repo
-          cp -r "$GITHUB_WORKSPACE/devicetree/prebuilt/"* "$TARGET_DIR/prebuilt/" 2>/dev/null || true
-          cp -r "$GITHUB_WORKSPACE/devicetree/recovery/"* "$TARGET_DIR/recovery/" 2>/dev/null || true
-          
+          cp -r "$GITHUB_WORKSPACE/devicetree/"* "$TARGET_DIR/"
           cd "$TARGET_DIR"
 
-          # Remove ALL old .mk files from repo copy
-          rm -f *.mk 2>/dev/null || true
+          # Fix b21ds typo in file names
+          find . -depth -name '*b21ds*' -exec sh -c '
+            for f do
+              mv "$f" "$(printf "%s" "$f" | sed "s/b21ds/b2lds/g")"
+            done
+          ' sh {} +
 
-          # AndroidProducts.mk
-          printf 'PRODUCT_MAKEFILES := \\\n    $(LOCAL_DIR)/omni_b2lds.mk\n' > AndroidProducts.mk
+          # Fix b21ds typo in content
+          grep -rl 'b21ds' . | xargs -r sed -i 's/b21ds/b2lds/g'
 
-          # omni_b2lds.mk - NO inherit-product at all!
-          cat > omni_b2lds.mk <<'MKEOF'
-# Minimal product spec - no inherit to avoid missing AOSP files
-PRODUCT_NAME := omni_b2lds
-PRODUCT_DEVICE := b2lds
-PRODUCT_BRAND := lge
-PRODUCT_MODEL := LG-D690
-PRODUCT_MANUFACTURER := lge
-PRODUCT_PACKAGES := \
-    recovery \
-    e2fsck_static \
-    mke2fs_static \
-    tune2fs_static \
-    twrp
+          # Remove any reference to gps_us_supl in all device tree files
+          find . -type f -exec sed -i '/gps_us_supl/d' {} \;
 
-PRODUCT_COPY_FILES := \
-    device/lge/b2lds/recovery/recovery.fstab:root/etc/recovery.fstab
+          # Overwrite product files to be safe
+          cat > AndroidProducts.mk <<'EOF'
+          PRODUCT_MAKEFILES := \
+              $(LOCAL_DIR)/omni_b2lds.mk
+          EOF
 
-$(call inherit-product, vendor/omni/config/common.mk)
-MKEOF
+          cat > omni_b2lds.mk <<'EOF'
+          $(call inherit-product, device/lge/b2lds/device_b2lds.mk)
+          $(call inherit-product, vendor/omni/config/common.mk)
 
-          # vendorsetup.sh
-          printf 'add_lunch_combo omni_b2lds-eng\n' > vendorsetup.sh
+          PRODUCT_NAME := omni_b2lds
+          PRODUCT_DEVICE := b2lds
+          PRODUCT_BRAND := lge
+          PRODUCT_MODEL := LG-D690
+          PRODUCT_MANUFACTURER := lge
+          EOF
 
-          # BoardConfig.mk
-          cat > BoardConfig.mk <<'MKEOF'
-LOCAL_PATH := device/lge/b2lds
+          echo "add_lunch_combo omni_b2lds-eng" > vendorsetup.sh
 
-TARGET_BOARD_PLATFORM := mt6582
-TARGET_NO_BOOTLOADER := true
-TARGET_ARCH := arm
-TARGET_CPU_ABI := armeabi-v7a
-TARGET_CPU_ABI2 := armeabi
-TARGET_ARCH_VARIANT := armv7-a-neon
-TARGET_CPU_VARIANT := cortex-a7
-TARGET_BOOTLOADER_BOARD_NAME := mt6582
-
-BOARD_BOOTIMAGE_PARTITION_SIZE := 16777216
-BOARD_RECOVERYIMAGE_PARTITION_SIZE := 16777216
-BOARD_SYSTEMIMAGE_PARTITION_SIZE := 2147483648
-BOARD_USERDATAIMAGE_PARTITION_SIZE := 4613734400
-BOARD_CACHEIMAGE_PARTITION_SIZE := 838860800
-BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
-BOARD_FLASH_BLOCK_SIZE := 131072
-
-TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/prebuilt/kernel
-TARGET_RECOVERY_FSTAB := $(LOCAL_PATH)/recovery/recovery.fstab
-
-BOARD_KERNEL_BASE := 0x80000000
-BOARD_KERNEL_PAGESIZE := 2048
-BOARD_MKBOOTIMG_ARGS := --base 0x80000000 --pagesize 2048 --kernel_offset 0x00008000 --ramdisk_offset 0x04000000 --tags_offset 0x00000100 --mtk 1
-
-BOARD_HAS_MTK_HARDWARE := true
-MTK_HARDWARE := true
-
-TARGET_USERIMAGES_USE_EXT4 := true
-BOARD_HAS_LARGE_FILESYSTEM := true
-BOARD_HAS_NO_SELECT_BUTTON := true
-
-TW_THEME := portrait_mdpi
-TW_BRIGHTNESS_PATH := /sys/class/leds/lcd-backlight/brightness
-TW_MAX_BRIGHTNESS := 255
-TW_SCREEN_BLANK_ON_BOOT := true
-RECOVERY_GRAPHICS_USE_LINELENGTH := true
-DEVICE_RESOLUTION := 540x960
-TARGET_SCREEN_WIDTH := 540
-TARGET_SCREEN_HEIGHT := 960
-MKEOF
-
-          echo "=================== FINAL FILES ==================="
-          ls -la
-          echo ""
-          echo "=================== omni_b2lds.mk ==================="
-          cat omni_b2lds.mk
-          echo ""
-          echo "=================== Check gps in device tree ==================="
-          grep -rn 'gps_us_supl' . && echo "!!! FOUND !!!" || echo "OK: clean"
-
-      - name: Check vendor/omni exists
-        run: |
-          echo "=== vendor/omni/config/common.mk ==="
-          if [ -f "$HOME/twrp/vendor/omni/config/common.mk" ]; then
-            echo "EXISTS!"
-            head -20 "$HOME/twrp/vendor/omni/config/common.mk"
-          else
-            echo "MISSING! Creating minimal vendor/omni/config/common.mk"
-            mkdir -p "$HOME/twrp/vendor/omni/config"
-            cat > "$HOME/twrp/vendor/omni/config/common.mk" <<'MKEOF'
-# Minimal TWRP common config
-TARGET_RECOVERY_PIXEL_FORMAT := "RGBX_8888"
-RECOVERY_GRAPHICS_USE_LINELENGTH := true
-TW_INCLUDE_CRYPTO := false
-TW_NO_EXFAT_FUSE := true
-TW_SCREEN_BLANK_ON_BOOT := true
-MKEOF
-            cat "$HOME/twrp/vendor/omni/config/common.mk"
-          fi
+          # Final check
+          echo "=== Any gps_us_supl left? ==="
+          grep -rn 'gps_us_supl' . || echo "None"
 
       - name: Fix Python 2 syntax
         run: |
@@ -191,11 +119,8 @@ MKEOF
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
 
-          echo "=== gps file check ==="
-          ls -la device/common/gps/
-          echo ""
-          echo "=== product file check ==="
-          ls -la device/lge/b2lds/
+          # Verify gps file exists
+          test -f device/common/gps/gps_us_supl.mk && echo "gps_us_supl.mk exists" || echo "MISSING!"
 
           source build/envsetup.sh
           lunch omni_b2lds-eng
