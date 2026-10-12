@@ -34,19 +34,21 @@ jobs:
 
       - name: Verify Java
         run: |
+          export ANDROID_JAVA_HOME="$JAVA_HOME"
           echo "JAVA_HOME=$JAVA_HOME"
+          echo "ANDROID_JAVA_HOME=$ANDROID_JAVA_HOME"
           java -version
           javac -version
-          test -f "$JAVA_HOME/lib/tools.jar" || {
-            echo "ERROR: JDK 8 tools.jar not found"
+          test -f "$ANDROID_JAVA_HOME/lib/tools.jar" || {
+            echo "ERROR: tools.jar not found"
             exit 1
           }
-          echo "JDK 8 tools.jar OK"
 
       - name: Setup repo
         run: |
           mkdir -p "$HOME/bin"
-          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo \
+          curl -fsSL \
+            https://storage.googleapis.com/git-repo-downloads/repo \
             -o "$HOME/bin/repo"
           chmod a+x "$HOME/bin/repo"
           echo "$HOME/bin" >> "$GITHUB_PATH"
@@ -65,31 +67,30 @@ jobs:
             -b twrp-5.1 --depth=1
 
       - name: Sync TWRP source
-            - name: Init TWRP source
-        run: |
-          mkdir -p "$HOME/twrp"
-          cd "$HOME/twrp"
-          "$HOME/bin/repo" init \
-            -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git \
-            -b twrp-5.1 --depth=1
-
-      - name: Sync TWRP source
         run: |
           cd "$HOME/twrp"
           for attempt in 1 2 3 4; do
             echo "Sync attempt $attempt of 4"
-            if "$HOME/bin/repo" sync -j2 --force-sync --no-clone-bundle --no-tags; then
+            if "$HOME/bin/repo" sync -j2 \
+              --force-sync --no-clone-bundle --no-tags; then
+              echo "Source sync successful"
               exit 0
             fi
-            sleep 20
+            echo "Download failed; retrying in 25 seconds"
+            if [ "$attempt" -lt 4 ]; then
+              sleep 25
+            fi
           done
+          echo "ERROR: Source download failed"
           exit 1
 
       - name: Copy and Fix Device Tree
         run: |
           mkdir -p "$HOME/twrp/device/lge/b2lds"
-          cp -r "$GITHUB_WORKSPACE/devicetree/"* \
-            "$HOME/twrp/device/lge/b2lds/"
+
+          find "$GITHUB_WORKSPACE/devicetree" \
+            -mindepth 1 -maxdepth 1 ! -name .git \
+            -exec cp -a {} "$HOME/twrp/device/lge/b2lds/" \;
 
           cd "$HOME/twrp/device/lge/b2lds"
 
@@ -112,11 +113,11 @@ jobs:
           if old in s:
               s = s.replace(old, new)
               p.write_text(s)
-              print("Fixed BoardConfig.mk OUT path")
+              print("BoardConfig.mk fixed")
           elif new in s:
-              print("BoardConfig.mk OUT_DIR path already fixed")
+              print("BoardConfig.mk already fixed")
           else:
-              raise SystemExit("ERROR: Expected output-directory line not found")
+              raise SystemExit("ERROR: BoardConfig output line not found")
           PY
 
           cat > AndroidProducts.mk <<'EOF'
@@ -135,15 +136,12 @@ jobs:
           EOF
 
           echo "add_lunch_combo omni_b2lds-eng" > vendorsetup.sh
+          touch omni.dependencies
 
           echo "=== AndroidProducts.mk ==="
           cat AndroidProducts.mk
-
           echo "=== omni_b2lds.mk ==="
           cat omni_b2lds.mk
-
-          echo "=== BoardConfig output path ==="
-          grep -n 'KERNEL_OBJ/usr' BoardConfig.mk
 
       - name: Fix Python 2 syntax
         run: |
@@ -158,7 +156,6 @@ jobs:
         run: |
           cd "$HOME/twrp"
 
-          export JAVA_HOME="$JAVA_HOME"
           export ANDROID_JAVA_HOME="$JAVA_HOME"
           export PATH="$JAVA_HOME/bin:$PATH"
           export OUT_DIR="$HOME/twrp/out"
@@ -166,26 +163,19 @@ jobs:
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
 
-          echo "=== Java ==="
+          echo "=== Java environment ==="
           echo "JAVA_HOME=$JAVA_HOME"
-          echo "ANDROID_JAVA_HOME=$ANDROID_JAVA_HOME"
           java -version
-
           test -f "$ANDROID_JAVA_HOME/lib/tools.jar"
 
-          echo "=== Checking required files ==="
+          echo "=== Checking product files ==="
           test -f device/lge/b2lds/AndroidProducts.mk
           test -f device/lge/b2lds/omni_b2lds.mk
           test -f device/lge/b2lds/device_b2lds.mk
           test -f vendor/omni/config/common.mk
 
-          echo "=== Preparing build environment ==="
           source build/envsetup.sh
-
-          echo "=== Selecting product ==="
           lunch omni_b2lds-eng
-
-          echo "=== Building recovery image ==="
           make -j4 recoveryimage
 
       - name: Upload TWRP
