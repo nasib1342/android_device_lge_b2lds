@@ -3,6 +3,9 @@ name: Build TWRP
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -13,24 +16,43 @@ jobs:
         with:
           path: devicetree
 
+      - name: Free space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+
       - name: Setup JDK 8
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '8'
 
-      - name: Free space
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python2 git gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip
+          sudo apt-get install -y \
+            python2 git gnupg flex bison gperf build-essential \
+            zip curl zlib1g-dev gcc-multilib g++-multilib \
+            libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev \
+            libx11-dev lib32z-dev ccache libgl1-mesa-dev \
+            libxml2-utils xsltproc unzip
+
+      - name: Verify Java
+        run: |
+          export ANDROID_JAVA_HOME="$JAVA_HOME"
+          echo "JAVA_HOME=$JAVA_HOME"
+          echo "ANDROID_JAVA_HOME=$ANDROID_JAVA_HOME"
+          java -version
+          javac -version
+          test -f "$ANDROID_JAVA_HOME/lib/tools.jar" || {
+            echo "ERROR: JDK 8 tools.jar not found"
+            exit 1
+          }
+          echo "JDK 8 tools.jar OK"
 
       - name: Setup repo
         run: |
           mkdir -p "$HOME/bin"
-          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
+          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo \
+            -o "$HOME/bin/repo"
           chmod a+x "$HOME/bin/repo"
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
@@ -43,149 +65,211 @@ jobs:
         run: |
           mkdir -p "$HOME/twrp"
           cd "$HOME/twrp"
-          "$HOME/bin/repo" init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git -b twrp-5.1 --depth=1
+          "$HOME/bin/repo" init \
+            -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git \
+            -b twrp-5.1 --depth=1
+
+      - name: Add device/common to local manifest
+        run: |
+          mkdir -p "$HOME/twrp/.repo/local_manifests"
+          cat > "$HOME/twrp/.repo/local_manifests/device_common.xml" <<'XMLEOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <manifest>
+            <project path="device/common" name="device/common" remote="aosp" revision="refs/tags/android-5.1.1_r28" />
+          </manifest>
+          XMLEOF
+          echo "=== Local manifest ==="
+          cat "$HOME/twrp/.repo/local_manifests/device_common.xml"
 
       - name: Sync TWRP source
         run: |
           cd "$HOME/twrp"
-          for i in 1 2 3; do
-            "$HOME/bin/repo" sync -j4 --force-sync --no-clone-bundle --no-tags && break
-            sleep 60
+          for attempt in 1 2 3 4; do
+            echo "Sync attempt $attempt of 4"
+            if "$HOME/bin/repo" sync -j2 --force-sync --no-clone-bundle --no-tags; then
+              echo "Source sync completed"
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              echo "Sync failed; retrying in 25 seconds"
+              sleep 25
+            fi
           done
+          echo "ERROR: Source sync failed after 4 attempts"
+          exit 1
 
-      - name: Create GPS files in TWRP source
+      - name: Verify device/common GPS file
         run: |
-          mkdir -p "$HOME/twrp/device/common/gps"
-          printf 'PRODUCT_COPY_FILES := device/common/gps/gps.conf_US_SUPL:system/etc/gps.conf\n' > "$HOME/twrp/device/common/gps/gps_us_supl.mk"
-          printf 'NTP_SERVER=time.gpsonextra.net\nXTRA_SERVER_1=http://xtra1.gpsonextra.net/xtra.bin\n' > "$HOME/twrp/device/common/gps/gps.conf_US_SUPL"
-          echo "=== Created files ==="
-          ls -la "$HOME/twrp/device/common/gps/"
+          test -f "$HOME/twrp/device/common/gps/gps_us_supl.mk" || {
+            echo "ERROR: device/common/gps/gps_us_supl.mk is missing"
+            exit 1
+          }
+          echo "device/common GPS makefile is present"
 
-      - name: Create Device Tree (fully self-contained)
+      - name: Copy and Fix Device Tree
         run: |
           TARGET_DIR="$HOME/twrp/device/lge/b2lds"
           mkdir -p "$TARGET_DIR"
-          mkdir -p "$TARGET_DIR/prebuilt"
-          mkdir -p "$TARGET_DIR/recovery"
-          
-          # Copy prebuilt kernel and recovery.fstab from repo
-          cp -r "$GITHUB_WORKSPACE/devicetree/prebuilt/"* "$TARGET_DIR/prebuilt/" 2>/dev/null || true
-          cp -r "$GITHUB_WORKSPACE/devicetree/recovery/"* "$TARGET_DIR/recovery/" 2>/dev/null || true
-          
+          find "$GITHUB_WORKSPACE/devicetree" -mindepth 1 -maxdepth 1 ! -name .git \
+            -exec cp -a {} "$TARGET_DIR/" \;
           cd "$TARGET_DIR"
 
-          # ==========================================
-          # AndroidProducts.mk
-          # ==========================================
-          printf 'PRODUCT_MAKEFILES := \\\n    $(LOCAL_DIR)/omni_b2lds.mk\n' > AndroidProducts.mk
+          find . -depth -name '*b21ds*' -exec sh -c '
+            for f do
+              mv "$f" "$(printf "%s" "$f" | sed "s/b21ds/b2lds/g")"
+            done
+          ' sh {} +
+          grep -rlI 'b21ds' . | xargs -r sed -i 's/b21ds/b2lds/g'
 
-          # ==========================================
-          # omni_b2lds.mk - FULLY SELF CONTAINED
-          # No inherit-product from device_b2lds.mk
-          # ==========================================
-          cat > omni_b2lds.mk <<'MKEOF'
-# Inherit from common AOSP product
-$(call inherit-product, $(SRC_TARGET_DIR)/product/full_base.mk)
+          python3 - <<'PY'
+          from pathlib import Path
 
-# Inherit from Omni common config (TWRP source)
-$(call inherit-product, vendor/omni/config/common.mk)
+          p = Path("BoardConfig.mk")
+          text = p.read_text()
 
-PRODUCT_NAME := omni_b2lds
-PRODUCT_DEVICE := b2lds
-PRODUCT_BRAND := lge
-PRODUCT_MODEL := LG-D690
-PRODUCT_MANUFACTURER := lge
-MKEOF
+          # Keep the old kernel-output workaround inside the configured OUT_DIR.
+          old_out = "$(shell mkdir -p $(OUT)/obj/KERNEL_OBJ/usr)"
+          new_out = "$(shell mkdir -p $(OUT_DIR)/obj/KERNEL_OBJ/usr)"
+          if old_out in text:
+              text = text.replace(old_out, new_out)
+              print("Fixed BoardConfig.mk KERNEL_OBJ output path")
+          elif new_out in text:
+              print("BoardConfig.mk KERNEL_OBJ output path already fixed")
+          else:
+              print("No legacy KERNEL_OBJ mkdir line found; continuing")
 
-          # ==========================================
-          # vendorsetup.sh
-          # ==========================================
-          printf 'add_lunch_combo omni_b2lds-eng\n' > vendorsetup.sh
+          # The custom boot-image tool must be referenced by its actual build output.
+          old_mtk = "BOARD_CUSTOM_MKBOOTIMG := mtkbootimg"
+          new_mtk = "BOARD_CUSTOM_MKBOOTIMG = $(HOST_OUT_EXECUTABLES)/mtkbootimg"
+          if old_mtk in text:
+              text = text.replace(old_mtk, new_mtk)
+              print("Fixed BOARD_CUSTOM_MKBOOTIMG to the host executable path")
+          elif new_mtk in text:
+              print("BOARD_CUSTOM_MKBOOTIMG path already fixed")
+          else:
+              raise SystemExit("ERROR: expected BOARD_CUSTOM_MKBOOTIMG setting was not found")
 
-          # ==========================================
-          # BoardConfig.mk
-          # ==========================================
-          cat > BoardConfig.mk <<'MKEOF'
-LOCAL_PATH := device/lge/b2lds
+          p.write_text(text)
+          PY
 
-TARGET_BOARD_PLATFORM := mt6582
-TARGET_NO_BOOTLOADER := true
-TARGET_ARCH := arm
-TARGET_CPU_ABI := armeabi-v7a
-TARGET_CPU_ABI2 := armeabi
-TARGET_ARCH_VARIANT := armv7-a-neon
-TARGET_CPU_VARIANT := cortex-a7
-TARGET_BOOTLOADER_BOARD_NAME := mt6582
+          echo "=== MTK boot-image tool source files ==="
+          test -f mtkbootimg/Android.mk
+          test -f mtkbootimg/mkbootimg.c
+          test -f mtkbootimg/bootimg.h
+          grep -n 'BOARD_CUSTOM_MKBOOTIMG' BoardConfig.mk
 
-BOARD_BOOTIMAGE_PARTITION_SIZE := 16777216
-BOARD_RECOVERYIMAGE_PARTITION_SIZE := 16777216
-BOARD_SYSTEMIMAGE_PARTITION_SIZE := 2147483648
-BOARD_USERDATAIMAGE_PARTITION_SIZE := 4613734400
-BOARD_CACHEIMAGE_PARTITION_SIZE := 838860800
-BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
-BOARD_FLASH_BLOCK_SIZE := 131072
+          cat > AndroidProducts.mk <<'MAKEEOF'
+          PRODUCT_MAKEFILES := device/lge/b2lds/omni_b2lds.mk
+          MAKEEOF
 
-TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/prebuilt/kernel
-TARGET_RECOVERY_FSTAB := $(LOCAL_PATH)/recovery/recovery.fstab
+          cat > omni_b2lds.mk <<'MAKEEOF'
+          $(call inherit-product, device/lge/b2lds/device_b2lds.mk)
+          $(call inherit-product, vendor/omni/config/common.mk)
 
-BOARD_KERNEL_BASE := 0x80000000
-BOARD_KERNEL_PAGESIZE := 2048
-BOARD_MKBOOTIMG_ARGS := --base 0x80000000 --pagesize 2048 --kernel_offset 0x00008000 --ramdisk_offset 0x04000000 --tags_offset 0x00000100 --mtk 1
+          PRODUCT_NAME := omni_b2lds
+          PRODUCT_DEVICE := b2lds
+          PRODUCT_BRAND := lge
+          PRODUCT_MODEL := LG-D690
+          PRODUCT_MANUFACTURER := lge
+          MAKEEOF
 
-BOARD_HAS_MTK_HARDWARE := true
-MTK_HARDWARE := true
+          echo '[]' > omni.dependencies
+          echo "add_lunch_combo omni_b2lds-eng" > vendorsetup.sh
 
-TARGET_USERIMAGES_USE_EXT4 := true
-BOARD_HAS_LARGE_FILESYSTEM := true
-BOARD_HAS_NO_SELECT_BUTTON := true
-
-TW_THEME := portrait_mdpi
-TW_BRIGHTNESS_PATH := /sys/class/leds/lcd-backlight/brightness
-TW_MAX_BRIGHTNESS := 255
-TW_SCREEN_BLANK_ON_BOOT := true
-RECOVERY_GRAPHICS_USE_LINELENGTH := true
-DEVICE_RESOLUTION := 540x960
-TARGET_SCREEN_WIDTH := 540
-TARGET_SCREEN_HEIGHT := 960
-MKEOF
-
-          # ==========================================
-          # Remove all other .mk files (aosp, cm, slim, etc.)
-          # ==========================================
-          rm -f aosp.mk cm_b2lds.mk slim.mk device.mk 2>/dev/null || true
-
-          # ==========================================
-          # FINAL VERIFICATION
-          # ==========================================
-          echo "=================== FILES IN DEVICE TREE ==================="
-          ls -la
-          echo ""
-          echo "=================== omni_b2lds.mk ==================="
+          echo "=== AndroidProducts.mk ==="
+          cat AndroidProducts.mk
+          echo "=== omni_b2lds.mk ==="
           cat omni_b2lds.mk
-          echo ""
-          echo "=================== CHECK gps_us_supl in ALL TWRP ==================="
-          cd "$HOME/twrp"
-          grep -rn 'gps_us_supl' device/lge/ 2>/dev/null && echo "!!! FOUND IN DEVICE TREE !!!" || echo "OK: No gps_us_supl in device/lge/"
-          echo ""
-          echo "=================== gps file exists? ==================="
-          ls -la device/common/gps/gps_us_supl.mk
+          echo "=== BoardConfig OUT hack ==="
+          grep -n 'mkdir -p.*OUT.*/obj/KERNEL_OBJ/usr' BoardConfig.mk || true
 
       - name: Fix Python 2 syntax
         run: |
-          sed -i 's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' "$HOME/twrp/build/tools/roomservice.py"
+          FILE="$HOME/twrp/build/tools/roomservice.py"
+          if [ -f "$FILE" ]; then
+            sed -i \
+              's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' \
+              "$FILE"
+          fi
 
       - name: Build TWRP
         run: |
           cd "$HOME/twrp"
-          export JAVA_HOME="$JAVA_HOME"
           export ANDROID_JAVA_HOME="$JAVA_HOME"
           export PATH="$JAVA_HOME/bin:$PATH"
-          export OUT_DIR=out
+          export OUT_DIR="$HOME/twrp/out"
+          export OUT="$OUT_DIR"
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
 
+          echo "=== Java environment ==="
+          echo "JAVA_HOME=$JAVA_HOME"
+          echo "ANDROID_JAVA_HOME=$ANDROID_JAVA_HOME"
+          java -version
+          test -f "$ANDROID_JAVA_HOME/lib/tools.jar"
+
+          echo "=== Checking required files ==="
+          test -f device/lge/b2lds/AndroidProducts.mk
+          test -f device/lge/b2lds/omni_b2lds.mk
+          test -f device/lge/b2lds/device_b2lds.mk
+          test -f device/lge/b2lds/prebuilt/kernel
+          test -f device/common/gps/gps_us_supl.mk
+          test -f vendor/omni/config/common.mk
+
           source build/envsetup.sh
           lunch omni_b2lds-eng
+
+          echo "=== Building MTK boot-image tool directly ==="
+          test -f device/lge/b2lds/mtkbootimg/mkbootimg.c
+          test -f device/lge/b2lds/mtkbootimg/bootimg.h
+          test -f system/core/libmincrypt/sha.c
+          test -f system/core/include/mincrypt/sha.h
+          mkdir -p "$OUT_DIR/host/linux-x86/bin"
+          gcc -O2 -Wall -Wno-unused-parameter \
+            -I system/core/include \
+            -I device/lge/b2lds/mtkbootimg \
+            device/lge/b2lds/mtkbootimg/mkbootimg.c \
+            system/core/libmincrypt/sha.c \
+            -o "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
+          chmod +x "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
+          test -x "$OUT_DIR/host/linux-x86/bin/mtkbootimg" || {
+            echo "ERROR: mtkbootimg executable was not generated"
+            exit 1
+          }
+          "$OUT_DIR/host/linux-x86/bin/mtkbootimg" 2>&1 | head -n 5 || true
+          echo "mtkbootimg executable built"
+          grep -n 'BOARD_CUSTOM_MKBOOTIMG' device/lge/b2lds/BoardConfig.mk
+
+          echo "=== Building Android host acp utility ==="
+          test -f build/tools/acp/Android.mk || {
+            echo "ERROR: build/tools/acp/Android.mk is missing"
+            exit 1
+          }
+          mmm build/tools/acp
+          test -x "$OUT_DIR/host/linux-x86/bin/acp" || {
+            echo "ERROR: acp executable was not generated"
+            exit 1
+          }
+          echo "acp executable built: $OUT_DIR/host/linux-x86/bin/acp"
+
+          echo "=== Building AOSP mkbootfs host tool ==="
+          test -f system/core/cpio/Android.mk || {
+            echo "ERROR: system/core/cpio/Android.mk is missing"
+            exit 1
+          }
+          test -f system/core/cpio/mkbootfs.c || {
+            echo "ERROR: system/core/cpio/mkbootfs.c is missing"
+            exit 1
+          }
+          mmm system/core/cpio
+          test -x "$OUT_DIR/host/linux-x86/bin/mkbootfs" || {
+            echo "ERROR: mkbootfs executable was not generated"
+            exit 1
+          }
+          "$OUT_DIR/host/linux-x86/bin/mkbootfs" 2>&1 | head -n 3 || true
+          echo "mkbootfs executable built"
+
+          echo "=== Building TWRP recovery image ==="
           make -j4 recoveryimage
 
       - name: Upload TWRP
