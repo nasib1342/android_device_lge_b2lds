@@ -218,8 +218,7 @@ jobs:
 
           source build/envsetup.sh
           lunch omni_b2lds-eng
-          mmm build/tools/acp
-          test -x "$OUT_DIR/host/linux-x86/bin/acp"
+
           echo "=== Building MTK boot-image tool directly ==="
           test -f device/lge/b2lds/mtkbootimg/mkbootimg.c
           test -f device/lge/b2lds/mtkbootimg/bootimg.h
@@ -240,6 +239,31 @@ jobs:
           "$OUT_DIR/host/linux-x86/bin/mtkbootimg" 2>&1 | head -n 5 || true
           echo "mtkbootimg executable built"
           grep -n 'BOARD_CUSTOM_MKBOOTIMG' device/lge/b2lds/BoardConfig.mk
+
+          echo "=== Building libhost first (acp dependency) ==="
+          test -f build/libs/host/Android.mk || {
+            echo "ERROR: build/libs/host/Android.mk is missing"
+            exit 1
+          }
+          mmm build/libs/host
+          LIBHOST_EXPORT="$(find "$OUT_DIR/host/linux-x86" -type f -path '*/libhost_intermediates/export_includes' -print -quit)"
+          if [ -z "$LIBHOST_EXPORT" ]; then
+            echo "ERROR: libhost export_includes was not generated"
+            exit 1
+          fi
+          echo "libhost dependency ready: $LIBHOST_EXPORT"
+
+          echo "=== Building Android host acp utility ==="
+          test -f build/tools/acp/Android.mk || {
+            echo "ERROR: build/tools/acp/Android.mk is missing"
+            exit 1
+          }
+          mmm build/tools/acp
+          test -x "$OUT_DIR/host/linux-x86/bin/acp" || {
+            echo "ERROR: acp executable was not generated"
+            exit 1
+          }
+          echo "acp executable built: $OUT_DIR/host/linux-x86/bin/acp"
 
           echo "=== Building AOSP mkbootfs host tool ==="
           test -f system/core/cpio/Android.mk || {
