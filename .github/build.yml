@@ -53,71 +53,56 @@ jobs:
             sleep 60
           done
 
-      - name: Copy and Build Clean Device Tree
+      - name: Create Missing GPS File
+        run: |
+          # Create the missing gps_us_supl.mk file in the TWRP source tree
+          mkdir -p "$HOME/twrp/device/common/gps"
+          cat > "$HOME/twrp/device/common/gps/gps_us_supl.mk" <<'EOF'
+          # Copyright (C) 2008 The Android Open Source Project
+          #
+          # Licensed under the Apache License, Version 2.0 (the "License");
+          # you may not use this file except in compliance with the License.
+          # You may obtain a copy of the License at
+          #
+          #      http://www.apache.org/licenses/LICENSE-2.0
+          #
+          # Unless required by applicable law or agreed to in writing, software
+          # distributed under the License is distributed on an "AS IS" BASIS,
+          # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+          # See the License for the specific language governing permissions and
+          # limitations under the License.
+
+          PRODUCT_COPY_FILES := \
+              device/common/gps/gps.conf_US_SUPL:system/etc/gps.conf
+          EOF
+          echo "Created gps_us_supl.mk:"
+          cat "$HOME/twrp/device/common/gps/gps_us_supl.mk"
+
+      - name: Copy and Fix Device Tree
         run: |
           TARGET_DIR="$HOME/twrp/device/lge/b2lds"
           mkdir -p "$TARGET_DIR"
           cp -r "$GITHUB_WORKSPACE/devicetree/"* "$TARGET_DIR/"
           cd "$TARGET_DIR"
 
-          # Fix b21ds typo in file names
+          # Fix b21ds typo in file names and content
           find . -depth -name '*b21ds*' -exec sh -c '
             for f do
               mv "$f" "$(printf "%s" "$f" | sed "s/b21ds/b2lds/g")"
             done
           ' sh {} +
-
-          # Fix b21ds typo in content
           grep -rl 'b21ds' . | xargs -r sed -i 's/b21ds/b2lds/g'
 
-          # ============================================
-          # OVERWRITE device_b2lds.mk with a CLEAN version
-          # ============================================
-          cat > device_b2lds.mk <<'EOF'
-          LOCAL_PATH := device/lge/b2lds
+          # Fix invalid OUT variable in BoardConfig.mk
+          sed -i 's|$(OUT)/obj/KERNEL_OBJ/usr|$(OUT_DIR)/obj/KERNEL_OBJ/usr|' BoardConfig.mk
 
-          # Architecture
-          TARGET_ARCH := arm
-          TARGET_CPU_ABI := armeabi-v7a
-          TARGET_CPU_ABI2 := armeabi
-          TARGET_ARCH_VARIANT := armv7-a-neon
-          TARGET_CPU_VARIANT := cortex-a7
-          TARGET_CPU_SMP := true
-
-          # Platform
-          TARGET_BOARD_PLATFORM := mt6582
-          TARGET_NO_BOOTLOADER := true
-
-          # Bootloader
-          TARGET_BOOTLOADER_BOARD_NAME := mt6582
-
-          # Kernel
-          TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/prebuilt/kernel
-          BOARD_KERNEL_BASE := 0x80000000
-          BOARD_KERNEL_PAGESIZE := 2048
-          BOARD_MKBOOTIMG_ARGS := --base 0x80000000 --pagesize 2048 --kernel_offset 0x00008000 --ramdisk_offset 0x04000000 --tags_offset 0x00000100 --mtk 1
-
-          # Recovery
-          TARGET_RECOVERY_FSTAB := $(LOCAL_PATH)/recovery/recovery.fstab
-          TARGET_USERIMAGES_USE_EXT4 := true
-          BOARD_HAS_LARGE_FILESYSTEM := true
-
-          # MTK Hardware
-          BOARD_HAS_MTK_HARDWARE := true
-          MTK_HARDWARE := true
-
-          # Partitions
-          BOARD_BOOTIMAGE_PARTITION_SIZE := 16777216
-          BOARD_RECOVERYIMAGE_PARTITION_SIZE := 16777216
-          BOARD_SYSTEMIMAGE_PARTITION_SIZE := 2147483648
-          BOARD_USERDATAIMAGE_PARTITION_SIZE := 4613734400
-          BOARD_CACHEIMAGE_PARTITION_SIZE := 838860800
-          BOARD_FLASH_BLOCK_SIZE := 131072
+          # Register the product
+          cat > AndroidProducts.mk <<'EOF'
+          PRODUCT_MAKEFILES := \
+              $(LOCAL_DIR)/omni_b2lds.mk
           EOF
 
-          # ============================================
-          # OVERWRITE omni_b2lds.mk
-          # ============================================
+          # Define the OmniROM product
           cat > omni_b2lds.mk <<'EOF'
           $(call inherit-product, device/lge/b2lds/device_b2lds.mk)
           $(call inherit-product, vendor/omni/config/common.mk)
@@ -129,26 +114,9 @@ jobs:
           PRODUCT_MANUFACTURER := lge
           EOF
 
-          # ============================================
-          # OVERWRITE AndroidProducts.mk
-          # ============================================
-          cat > AndroidProducts.mk <<'EOF'
-          PRODUCT_MAKEFILES := \
-              $(LOCAL_DIR)/omni_b2lds.mk
-          EOF
-
-          # ============================================
-          # OVERWRITE vendorsetup.sh
-          # ============================================
           echo "add_lunch_combo omni_b2lds-eng" > vendorsetup.sh
 
-          # ============================================
-          # FINAL VERIFICATION
-          # ============================================
-          echo "=== ANY gps_us_supl remaining? ==="
-          grep -rn 'gps_us_supl' . && echo "!!! STILL FOUND !!!" || echo "OK: No gps references"
-          echo ""
-          echo "=== Files in device tree ==="
+          echo "=== Final device files ==="
           ls -la
 
       - name: Fix Python 2 syntax
