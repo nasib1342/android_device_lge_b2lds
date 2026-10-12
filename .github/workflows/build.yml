@@ -31,9 +31,7 @@ jobs:
         run: |
           echo "JAVA_HOME=$JAVA_HOME"
           export ANDROID_JAVA_HOME="$JAVA_HOME"
-          echo "ANDROID_JAVA_HOME=$ANDROID_JAVA_HOME"
           java -version
-          javac -version
           test -f "$ANDROID_JAVA_HOME/lib/tools.jar" || { echo "ERROR: JDK 8 tools.jar not found"; exit 1; }
           echo "tools.jar found successfully"
 
@@ -71,21 +69,42 @@ jobs:
           cp -r "$GITHUB_WORKSPACE/devicetree/"* "$HOME/twrp/device/lge/b2lds/"
           cd "$HOME/twrp/device/lge/b2lds"
 
+          # Fix b21ds typo in file names
           find . -depth -name '*b21ds*' -exec sh -c '
             for f do
               mv "$f" "$(printf "%s" "$f" | sed "s/b21ds/b2lds/g")"
             done
           ' sh {} +
 
+          # Fix b21ds typo in content
           grep -rl 'b21ds' . | xargs -r sed -i 's/b21ds/b2lds/g'
 
+          # Fix invalid OUT variable in BoardConfig.mk
           sed -i 's|$(OUT)/obj/KERNEL_OBJ/usr|$(OUT_DIR)/obj/KERNEL_OBJ/usr|' BoardConfig.mk
 
+          # Remove ALL gps_us_supl references from all files using awk
+          echo "=== BEFORE: Files containing gps_us_supl ==="
+          grep -rln 'gps_us_supl' . || echo "none"
+          find . -type f | while read f; do
+            if grep -q 'gps_us_supl' "$f" 2>/dev/null; then
+              echo "Removing from: $f"
+              awk '!/gps_us_supl/' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+            fi
+          done
+          echo "=== AFTER: Files containing gps_us_supl ==="
+          grep -rln 'gps_us_supl' . || echo "All removed successfully"
+
+          # Show device_b2lds.mk content for verification
+          echo "=== device_b2lds.mk content ==="
+          cat device_b2lds.mk
+
+          # Register the product
           cat > AndroidProducts.mk <<'EOF'
           PRODUCT_MAKEFILES := \
               $(LOCAL_DIR)/omni_b2lds.mk
           EOF
 
+          # Define the OmniROM product
           cat > omni_b2lds.mk <<'EOF'
           $(call inherit-product, device/lge/b2lds/device_b2lds.mk)
           $(call inherit-product, vendor/omni/config/common.mk)
@@ -99,16 +118,7 @@ jobs:
 
           echo "add_lunch_combo omni_b2lds-eng" > vendorsetup.sh
 
-          echo "=== BoardConfig output fix ==="
-          grep -n 'KERNEL_OBJ/usr' BoardConfig.mk
-
-          echo "=== AndroidProducts.mk ==="
-          cat AndroidProducts.mk
-
-          echo "=== omni_b2lds.mk ==="
-          cat omni_b2lds.mk
-
-          echo "=== Device files ==="
+          echo "=== Final device files ==="
           ls -la
 
       - name: Fix Python 2 syntax
@@ -126,16 +136,8 @@ jobs:
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
 
-          echo "=== Java environment ==="
-          echo "JAVA_HOME=$JAVA_HOME"
-          echo "ANDROID_JAVA_HOME=$ANDROID_JAVA_HOME"
-          java -version
-          test -f "$ANDROID_JAVA_HOME/lib/tools.jar"
-
-          echo "=== Checking product files ==="
-          test -f device/lge/b2lds/AndroidProducts.mk
-          test -f device/lge/b2lds/omni_b2lds.mk
-          test -f vendor/omni/config/common.mk
+          echo "=== Final check for gps_us_supl ==="
+          grep -rn 'gps_us_supl' device/lge/b2lds/ || echo "OK: no references"
 
           source build/envsetup.sh
           lunch omni_b2lds-eng
