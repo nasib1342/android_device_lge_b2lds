@@ -2,53 +2,98 @@ name: Build TWRP
 on: [workflow_dispatch]
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
         with:
           path: devicetree
+
+      - name: Free space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y openjdk-8-jdk python2 git gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip
+          sudo apt-get install -y python2 git gnupg flex bison gperf build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z-dev ccache libgl1-mesa-dev libxml2-utils xsltproc unzip
+
+      - name: Install JDK 8
+        run: |
+          wget -q https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u422-b05/OpenJDK8U-jdk_x64_linux_hotspot_8u422b05.tar.gz -O /tmp/jdk8.tar.gz
+          sudo mkdir -p /opt/jdk8
+          sudo tar -xzf /tmp/jdk8.tar.gz -C /opt/jdk8 --strip-components=1
+          echo "JAVA_HOME=/opt/jdk8" >> $GITHUB_ENV
+          echo "/opt/jdk8/bin" >> $GITHUB_PATH
+
+      - name: Verify Java
+        run: |
+          java -version
+          echo "JAVA_HOME=$JAVA_HOME"
+          ls -la $JAVA_HOME/lib/tools.jar
+
       - name: Setup repo
         run: |
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod a+x ~/bin/repo
           echo "$HOME/bin" >> $GITHUB_PATH
+
       - name: Config git
         run: git config --global user.name "Actions" && git config --global user.email "a@b.c"
+
       - name: Init TWRP
         run: |
           mkdir -p ~/twrp && cd ~/twrp
           ~/bin/repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git -b twrp-5.1 --depth=1
+
       - name: Sync TWRP
         run: cd ~/twrp && ~/bin/repo sync -j8 --force-sync --no-clone-bundle --no-tags
-      - name: Copy device tree
+
+      - name: Copy device tree and fix
         run: |
           mkdir -p ~/twrp/device/lge/b2lds
           cp -r $GITHUB_WORKSPACE/devicetree/* ~/twrp/device/lge/b2lds/
           cd ~/twrp/device/lge/b2lds
+          # Fix b21ds typo in file names and content
           for f in $(find . -name '*b21ds*'); do mv "$f" "$(echo $f | sed 's/b21ds/b2lds/g')"; done
           grep -rl 'b21ds' . | xargs sed -i 's/b21ds/b2lds/g' || true
+          # Overwrite AndroidProducts.mk
+          cat > AndroidProducts.mk <<'EOF'
+          PRODUCT_MAKEFILES := device/lge/b2lds/omni_b2lds.mk
+          EOF
+          # Overwrite omni_b2lds.mk
+          cat > omni_b2lds.mk <<'EOF'
+          $(call inherit-product, device/lge/b2lds/device_b2lds.mk)
+          $(call inherit-product, vendor/omni/config/common.mk)
+
+          PRODUCT_NAME := omni_b2lds
+          PRODUCT_DEVICE := b2lds
+          PRODUCT_BRAND := lge
+          PRODUCT_MODEL := LG-D690
+          PRODUCT_MANUFACTURER := lge
+          EOF
+          # Overwrite vendorsetup.sh
+          cat > vendorsetup.sh <<'EOF'
+          add_lunch_combo omni_b2lds-eng
+          EOF
           echo "=== FILES ===" && ls -la
           echo "=== AndroidProducts.mk ===" && cat AndroidProducts.mk
           echo "=== omni_b2lds.mk ===" && cat omni_b2lds.mk
+          echo "=== vendorsetup.sh ===" && cat vendorsetup.sh
+
       - name: Fix Python 2
         run: sed -i 's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' ~/twrp/build/tools/roomservice.py
+
       - name: Build TWRP
         run: |
-          export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+          export JAVA_HOME=/opt/jdk8
           export PATH=$JAVA_HOME/bin:$PATH
-          echo "JAVA_HOME=$JAVA_HOME"
-          java -version
           cd ~/twrp
           source build/envsetup.sh
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
           lunch omni_b2lds-eng
           make -j8 recoveryimage
+
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
