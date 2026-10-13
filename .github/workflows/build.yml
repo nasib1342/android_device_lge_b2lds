@@ -312,16 +312,9 @@ jobs:
           }
           echo "mkbootfs executable built"
 
-          # Build the recovery executable as an explicit full-tree module target
-          # before assembling the ramdisk/image. This verifies that the TWRP
-          # Android.mk module registration fix above actually took effect.
-          echo "=== Building the TWRP recovery executable ==="
-          make -j4 recovery
-          echo "=== Checking recovery module output ==="
-          find "$OUT_DIR/target/product/b2lds/obj/EXECUTABLES/recovery_intermediates" \
-            -maxdepth 3 -type f -name recovery -print 2>/dev/null || true
-
-          # Use the full platform make graph for the image; do not use mmm here.
+          # Build the complete recovery image through the platform build graph.
+          # Do not invoke `make recovery` directly: this legacy branch does not
+          # expose that module name as a standalone top-level make target.
           echo "=== Building TWRP recovery image ==="
           make -j4 recoveryimage
 
