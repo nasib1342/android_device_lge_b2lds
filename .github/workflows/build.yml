@@ -154,7 +154,6 @@ jobs:
 
           p = Path("BoardConfig.mk")
           text = p.read_text()
-          # Keep the legacy kernel-output workaround inside OUT_DIR.
           old_out = "$(shell mkdir -p $(OUT)/obj/KERNEL_OBJ/usr)"
           new_out = "$(shell mkdir -p $(OUT_DIR)/obj/KERNEL_OBJ/usr)"
           if old_out in text:
@@ -165,7 +164,6 @@ jobs:
           else:
               print("No legacy KERNEL_OBJ mkdir line found; continuing")
 
-          # Set the MTK image tool to its actual host executable path.
           old_mtk = "BOARD_CUSTOM_MKBOOTIMG := mtkbootimg"
           new_mtk = "BOARD_CUSTOM_MKBOOTIMG = $(HOST_OUT_EXECUTABLES)/mtkbootimg"
           if old_mtk in text:
@@ -191,7 +189,6 @@ jobs:
           cat > omni_b2lds.mk <<'MAKEEOF'
           $(call inherit-product, device/lge/b2lds/device_b2lds.mk)
           $(call inherit-product, vendor/omni/config/common.mk)
-
           PRODUCT_NAME := omni_b2lds
           PRODUCT_DEVICE := b2lds
           PRODUCT_BRAND := lge
@@ -199,7 +196,6 @@ jobs:
           PRODUCT_MANUFACTURER := lge
           PRODUCT_PACKAGES += recovery
           MAKEEOF
-
           echo '[]' > omni.dependencies
           echo "add_lunch_combo omni_b2lds-eng" > vendorsetup.sh
           echo "=== AndroidProducts.mk ==="
@@ -209,33 +205,33 @@ jobs:
           echo "=== BoardConfig output workaround ==="
           grep -n 'mkdir -p.*OUT.*/obj/KERNEL_OBJ/usr' BoardConfig.mk || true
 
-      - name: Fix legacy Python syntax
+      - name: Configure Python 2 for legacy Android build tools
         run: |
-          # roomservice.py uses Python 2 exception syntax in this old branch.
-          ROOM_FILE="$HOME/twrp/build/tools/roomservice.py"
-          if [ -f "$ROOM_FILE" ]; then
-            sed -i \
-              's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' \
-              "$ROOM_FILE"
-          fi
-
-          # This old Android 5.1 script uses dict.iteritems(), which fails
-          # when the build invokes it with Python 3. dict.items() works on both.
-          PROP_FILE="$HOME/twrp/build/tools/post_process_props.py"
-          if [ -f "$PROP_FILE" ]; then
-            sed -i 's/\.iteritems()/\.items()/g' "$PROP_FILE"
-            echo "Patched post_process_props.py for Python 2/3 compatibility"
-            grep -n 'buildprops.items()' "$PROP_FILE" || true
-          else
-            echo "ERROR: post_process_props.py not found at expected path"
+          test -x /usr/bin/python2 || {
+            echo "ERROR: python2 is not installed"
             exit 1
-          fi
+          }
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/python" <<'PYWRAP'
+          #!/bin/sh
+          exec /usr/bin/python2 "$@"
+          PYWRAP
+          chmod +x "$HOME/bin/python"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/bin:$PATH"
+          echo "=== Python selected for Android 5.1 build ==="
+          command -v python
+          python --version
+          python3 --version
+          python -m py_compile "$HOME/twrp/build/tools/findleaves.py"
+          python -m py_compile "$HOME/twrp/build/tools/diff_package_overlays.py"
+          echo "Legacy Python 2 build scripts parse successfully"
 
       - name: Build TWRP
         run: |
           cd "$HOME/twrp"
           export ANDROID_JAVA_HOME="$JAVA_HOME"
-          export PATH="$JAVA_HOME/bin:$PATH"
+          export PATH="$HOME/bin:$JAVA_HOME/bin:$PATH"
           export OUT_DIR="$HOME/twrp/out"
           export OUT="$OUT_DIR"
           export ALLOW_MISSING_DEPENDENCIES=true
@@ -246,6 +242,11 @@ jobs:
           echo "ANDROID_JAVA_HOME=$ANDROID_JAVA_HOME"
           java -version
           test -f "$ANDROID_JAVA_HOME/lib/tools.jar"
+
+          echo "=== Python environment ==="
+          command -v python
+          python --version
+          python3 --version
 
           echo "=== Checking required files ==="
           test -f device/lge/b2lds/AndroidProducts.mk
@@ -258,21 +259,16 @@ jobs:
           source build/envsetup.sh
           lunch omni_b2lds-eng
 
-          # Bootstrap the old Android copy helper dependency.
-          # On the Ubuntu host, GNU cp supports the -f and -p flags
-          # used by this Android 5.1 build system.
-          echo "=== Bootstrapping host acp helper ==="
+          echo "=== Bootstrap host acp helper ==="
           mkdir -p "$OUT_DIR/host/linux-x86/bin"
           ln -sf /bin/cp "$OUT_DIR/host/linux-x86/bin/acp"
           test -x "$OUT_DIR/host/linux-x86/bin/acp"
-          ls -l "$OUT_DIR/host/linux-x86/bin/acp"
 
-          echo "=== Building MTK boot-image tool directly ==="
+          echo "=== Build MTK boot-image tool ==="
           test -f device/lge/b2lds/mtkbootimg/mkbootimg.c
           test -f device/lge/b2lds/mtkbootimg/bootimg.h
           test -f system/core/libmincrypt/sha.c
           test -f system/core/include/mincrypt/sha.h
-          mkdir -p "$OUT_DIR/host/linux-x86/bin"
           gcc -O2 -Wall -Wno-unused-parameter \
             -I system/core/include \
             -I device/lge/b2lds/mtkbootimg \
@@ -281,28 +277,20 @@ jobs:
             -o "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
           chmod +x "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
           test -x "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
-          echo "mtkbootimg executable built"
           grep -n 'BOARD_CUSTOM_MKBOOTIMG' device/lge/b2lds/BoardConfig.mk
 
-          echo "=== Building AOSP minigzip host tool ==="
+          echo "=== Build zlib host tools ==="
           test -f external/zlib/Android.mk
           if ! mmm external/zlib; then
-            echo "WARNING: mmm external/zlib did not complete; checking for a usable gzip fallback"
+            echo "WARNING: external/zlib host build did not fully complete"
           fi
           if [ ! -x "$OUT_DIR/host/linux-x86/bin/minigzip" ]; then
-            if [ -x /usr/bin/gzip ]; then
-              echo "WARNING: using system gzip as minigzip-compatible fallback"
-              mkdir -p "$OUT_DIR/host/linux-x86/bin"
-              ln -sf /usr/bin/gzip "$OUT_DIR/host/linux-x86/bin/minigzip"
-            else
-              echo "ERROR: neither AOSP minigzip nor system gzip is available"
-              exit 1
-            fi
+            echo "Using /usr/bin/gzip as the minigzip fallback"
+            ln -sf /usr/bin/gzip "$OUT_DIR/host/linux-x86/bin/minigzip"
           fi
           test -x "$OUT_DIR/host/linux-x86/bin/minigzip"
-          "$OUT_DIR/host/linux-x86/bin/minigzip" --version || true
 
-          echo "=== Building AOSP mkbootfs host tool ==="
+          echo "=== Build AOSP mkbootfs ==="
           test -f system/core/cpio/Android.mk
           test -f system/core/cpio/mkbootfs.c
           mmm system/core/cpio
@@ -310,12 +298,11 @@ jobs:
             echo "ERROR: mkbootfs executable was not generated"
             exit 1
           }
-          echo "mkbootfs executable built"
 
-          # Build the complete recovery image through the platform build graph.
-          # Do not invoke `make recovery` directly: this legacy branch does not
-          # expose that module name as a standalone top-level make target.
-          echo "=== Building TWRP recovery image ==="
+          echo "=== Verify recovery module is registered ==="
+          grep -n 'LOCAL_MODULE := recovery' bootable/recovery/Android.mk
+
+          echo "=== Build TWRP recovery image ==="
           make -j4 recoveryimage
 
       - name: Upload TWRP
