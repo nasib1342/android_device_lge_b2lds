@@ -135,6 +135,41 @@ jobs:
           grep -n -E 'common_cflags|Wno-return-type|fcommon' \
             "$HOME/twrp/external/checkpolicy/Android.mk"
 
+      - name: Fix legacy C++ nullptr compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Fix nullptr in legacy TWRP partition.cpp ==="
+          python3 - <<'PYFIX'
+          from pathlib import Path
+
+          p = Path.home() / "twrp/bootable/recovery/partition.cpp"
+          if not p.is_file():
+              raise SystemExit(f"ERROR: partition.cpp not found: {p}")
+
+          text = p.read_text()
+          old = "sml != nullptr"
+          new = "sml != 0"
+
+          if text.count(old) == 1:
+              p.write_text(text.replace(old, new, 1))
+              print("SUCCESS: replaced legacy-incompatible nullptr check")
+          elif text.count(new) == 1 and old not in text:
+              print("Already fixed: nullptr check uses 0")
+          else:
+              raise SystemExit(
+                  "ERROR: expected exactly one 'sml != nullptr' expression; "
+                  "source was not modified"
+              )
+
+          updated = p.read_text()
+          if old in updated or new not in updated:
+              raise SystemExit("ERROR: partition.cpp verification failed")
+
+          print("SUCCESS: partition.cpp compatibility check passed")
+          PYFIX
+          grep -n -F 'sml != 0' "$HOME/twrp/bootable/recovery/partition.cpp"
+
       - name: Verify required legacy source files
         run: |
           test -f "$HOME/twrp/device/common/gps/gps_us_supl.mk" || {
