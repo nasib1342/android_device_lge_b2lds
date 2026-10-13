@@ -179,13 +179,26 @@ jobs:
           echo "=== BoardConfig output workaround ==="
           grep -n 'mkdir -p.*OUT.*/obj/KERNEL_OBJ/usr' BoardConfig.mk || true
 
-      - name: Fix Python 2 syntax
+      - name: Fix legacy Python syntax
         run: |
-          FILE="$HOME/twrp/build/tools/roomservice.py"
-          if [ -f "$FILE" ]; then
+          # roomservice.py uses Python 2 exception syntax in this old branch.
+          ROOM_FILE="$HOME/twrp/build/tools/roomservice.py"
+          if [ -f "$ROOM_FILE" ]; then
             sed -i \
               's/except IOError, ES.ParseError:/except (IOError, ES.ParseError):/' \
-              "$FILE"
+              "$ROOM_FILE"
+          fi
+
+          # This old Android 5.1 script uses dict.iteritems(), which fails
+          # when the build invokes it with Python 3. dict.items() works on both.
+          PROP_FILE="$HOME/twrp/build/tools/post_process_props.py"
+          if [ -f "$PROP_FILE" ]; then
+            sed -i 's/\.iteritems()/\.items()/g' "$PROP_FILE"
+            echo "Patched post_process_props.py for Python 2/3 compatibility"
+            grep -n 'buildprops.items()' "$PROP_FILE" || true
+          else
+            echo "ERROR: post_process_props.py not found at expected path"
+            exit 1
           fi
 
       - name: Build TWRP
