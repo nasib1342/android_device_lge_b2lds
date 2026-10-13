@@ -1,12 +1,10 @@
 LOCAL_PATH := device/lge/b2lds
 
-# inherit from the proprietary version
+# Proprietary configuration (optional when vendor files are absent)
 -include vendor/lge/b2lds/BoardConfigVendor.mk
-
-# inherit from the proprietary version
 -include vendor/lge/b2lds/b2lds-vendor.mk
 
-# GPS
+# Device headers
 TARGET_SPECIFIC_HEADER_PATH := device/lge/b2lds/include
 
 # Platform
@@ -24,7 +22,7 @@ TARGET_CPU_SMP := true
 # Bootloader
 TARGET_BOOTLOADER_BOARD_NAME := mt6582
 
-# Partition sizes
+# Partition sizes (verified against /proc/dumchar_info)
 BOARD_BOOTIMAGE_PARTITION_SIZE := 16777216
 BOARD_RECOVERYIMAGE_PARTITION_SIZE := 16777216
 BOARD_SYSTEMIMAGE_PARTITION_SIZE := 2147483648
@@ -33,26 +31,25 @@ BOARD_CACHEIMAGE_PARTITION_SIZE := 838860800
 BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
 BOARD_FLASH_BLOCK_SIZE := 131072
 
+# Prebuilt kernel and recovery fstab
 TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/prebuilt/kernel
 TARGET_RECOVERY_FSTAB := $(LOCAL_PATH)/recovery/recovery.fstab
 
+# Legacy MediaTek boot image format
 BOARD_MKBOOTIMG_ARGS := --base 0x80000000 --pagesize 2048 --kernel_offset 0x00008000 --ramdisk_offset 0x04000000 --tags_offset 0x00000100 --mtk 1
 BOARD_KERNEL_BASE := 0x80000000
 BOARD_KERNEL_PAGESIZE := 2048
-
 BOARD_CUSTOM_BOOTIMG := true
 BOARD_CUSTOM_MKBOOTIMG := mtkbootimg
 BOARD_CUSTOM_BOOTIMG_MK := $(LOCAL_PATH)/bootimg.mk
-
 TARGET_KMODULES := true
 
-# Assert
+# Device identity
 TARGET_OTA_ASSERT_DEVICE := b2lds
-
 COMMON_GLOBAL_CFLAGS += -DDISABLE_HW_ID_MATCH_CHECK
 TARGET_RUNNING_WITHOUT_SYNC_FRAMEWORK := true
 
-# Disable memcpy opt (for audio libraries)
+# Disable memcpy optimization for legacy audio libraries
 TARGET_CPU_MEMCPY_OPT_DISABLE := true
 
 # EGL
@@ -60,22 +57,19 @@ BOARD_EGL_CFG := device/lge/b2lds/configs/egl.cfg
 USE_OPENGL_RENDERER := true
 BOARD_EGL_WORKAROUND_BUG_10194508 := true
 
-# MTK Hardware
+# MediaTek hardware
 BOARD_HAS_MTK_HARDWARE := true
 MTK_HARDWARE := true
 COMMON_GLOBAL_CFLAGS += -DMTK_HARDWARE -DADD_LEGACY_ACQUIRE_BUFFER_SYMBOL
 COMMON_GLOBAL_CPPFLAGS += -DMTK_HARDWARE
-
-# Offline charging
 ADDITIONAL_DEFAULT_PROPERTIES += ro.mount.fs=EXT4
 
-# RIL
+# RIL and connectivity
 BOARD_RIL_CLASS := ../../../device/lge/b2lds/ril/
-
 BOARD_CONNECTIVITY_VENDOR := MediaTek
 BOARD_CONNECTIVITY_MODULE := conn_soc
 
-# WIFI
+# Wi-Fi
 WPA_SUPPLICANT_VERSION := VER_0_8_X
 BOARD_HOSTAPD_DRIVER := NL80211
 BOARD_HOSTAPD_PRIVATE_LIB := lib_driver_cmd_mt66xx
@@ -92,19 +86,25 @@ BOARD_HAVE_BLUETOOTH_MTK := true
 BOARD_BLUETOOTH_DOES_NOT_USE_RFKILL := true
 BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := device/lge/b2lds/bluetooth
 
-# TWRP
+# TWRP storage: Android uses emulated storage under /data/media, not /emmc.
 RECOVERY_GRAPHICS_USE_LINELENGTH := true
-TW_INTERNAL_STORAGE_PATH := "/emmc"
-TW_INTERNAL_STORAGE_MOUNT_POINT := "emmc"
-TW_EXTERNAL_STORAGE_PATH := "/sdcard"
-TW_EXTERNAL_STORAGE_MOUNT_POINT := "sdcard"
-TW_DEFAULT_EXTERNAL_STORAGE := true
+TW_INTERNAL_STORAGE_PATH := "/data/media"
+TW_INTERNAL_STORAGE_MOUNT_POINT := "data"
+TW_EXTERNAL_STORAGE_PATH := "/external_sd"
+TW_EXTERNAL_STORAGE_MOUNT_POINT := "external_sd"
+TW_DEFAULT_EXTERNAL_STORAGE := false
+RECOVERY_SDCARD_ON_DATA := true
+
+# Legacy Android 5.x ext4 encryption configuration.
+# Actual userdata partition from /proc/dumchar_info is mmcblk0p11.
 TW_INCLUDE_JB_CRYPTO := true
 TW_CRYPTO_FS_TYPE := "ext4"
-TW_CRYPTO_REAL_BLKDEV := "/dev/block/mmcblk0p3"   # اصلاح شد: data روی mmcblk0p3 است
+TW_CRYPTO_REAL_BLKDEV := "/dev/block/mmcblk0p11"
 TW_CRYPTO_MNT_POINT := "/data"
 TW_CRYPTO_FS_OPTIONS := "nosuid,nodev,noatime,discard,noauto_da_alloc,data=ordered"
 BOARD_HAS_LARGE_FILESYSTEM := true
+
+# Display
 DEVICE_SCREEN_WIDTH := 540
 DEVICE_SCREEN_HEIGHT := 960
 TARGET_SCREEN_WIDTH := 540
@@ -118,26 +118,17 @@ BOARD_HAS_MTK_CPU := true
 BOARD_NEEDS_MTK_GETSIZE := true
 BOARD_HAS_NO_SELECT_BUTTON := true
 TW_CUSTOM_CPU_TEMP_PATH := /sys/devices/virtual/thermal/thermal_zone1/temp
-
 TARGET_USE_CUSTOM_LUN_FILE_PATH := "/sys/devices/virtual/android_usb/android0/f_mass_storage/lun%d/file"
 
-BOARD_SEPOLICY_DIRS := \
-       device/lge/b2lds/sepolicy
-
-BOARD_SEPOLICY_UNION := \
-       device.te \
-       app.te \
-       system.te \
-       netd.te \
-       file_contexts
-
+# SELinux policy
+BOARD_SEPOLICY_DIRS += device/lge/b2lds/sepolicy
+BOARD_SEPOLICY_UNION := device.te app.te system.te netd.te file_contexts
 TARGET_SYSTEM_PROP := $(LOCAL_PATH)/system.prop
 
+# Filesystem settings
 TARGET_USERIMAGES_USE_EXT4 := true
 TARGET_USERIMAGES_SPARSE_EXT_DISABLED := false
-
-# Enable Minikin text layout engine (will be the default soon)
 USE_MINIKIN := true
 
-# Hack for build
+# Legacy build workaround. The workflow adjusts OUT to OUT_DIR when needed.
 $(shell mkdir -p $(OUT)/obj/KERNEL_OBJ/usr)
