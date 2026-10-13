@@ -69,17 +69,18 @@ jobs:
             -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git \
             -b twrp-5.1 --depth=1
 
-      - name: Add device/common to local manifest
+      - name: Add missing legacy projects to local manifest
         run: |
           mkdir -p "$HOME/twrp/.repo/local_manifests"
-          cat > "$HOME/twrp/.repo/local_manifests/device_common.xml" <<'XMLEOF'
+          cat > "$HOME/twrp/.repo/local_manifests/b2lds_dependencies.xml" <<'XMLEOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
             <project path="device/common" name="device/common" remote="aosp" revision="refs/tags/android-5.1.1_r28" />
+            <project path="external/wpa_supplicant_8" name="android_external_wpa_supplicant_8" remote="omnirom" revision="android-5.1" groups="pdk" />
           </manifest>
           XMLEOF
-          echo "=== Local manifest ==="
-          cat "$HOME/twrp/.repo/local_manifests/device_common.xml"
+          echo "=== Local manifest for b2lds ==="
+          cat "$HOME/twrp/.repo/local_manifests/b2lds_dependencies.xml"
 
       - name: Sync TWRP source
         run: |
@@ -98,13 +99,17 @@ jobs:
           echo "ERROR: Source sync failed after 4 attempts"
           exit 1
 
-      - name: Verify device/common GPS file
+      - name: Verify required legacy source files
         run: |
           test -f "$HOME/twrp/device/common/gps/gps_us_supl.mk" || {
             echo "ERROR: device/common/gps/gps_us_supl.mk is missing"
             exit 1
           }
-          echo "device/common GPS makefile is present"
+          test -f "$HOME/twrp/external/wpa_supplicant_8/wpa_supplicant/android.config" || {
+            echo "ERROR: external/wpa_supplicant_8 was not synced or android.config is missing"
+            exit 1
+          }
+          echo "device/common GPS and wpa_supplicant source files are present"
 
       - name: Fix TWRP recovery module registration
         run: |
@@ -254,6 +259,7 @@ jobs:
           test -f device/lge/b2lds/device_b2lds.mk
           test -f device/lge/b2lds/prebuilt/kernel
           test -f device/common/gps/gps_us_supl.mk
+          test -f external/wpa_supplicant_8/wpa_supplicant/android.config
           test -f vendor/omni/config/common.mk
 
           source build/envsetup.sh
