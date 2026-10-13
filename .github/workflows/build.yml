@@ -106,6 +106,35 @@ jobs:
           }
           echo "device/common GPS makefile is present"
 
+      - name: Fix TWRP recovery module registration
+        run: |
+          RECOVERY_MK="$HOME/twrp/bootable/recovery/Android.mk"
+          test -f "$RECOVERY_MK" || {
+            echo "ERROR: bootable/recovery/Android.mk is missing"
+            exit 1
+          }
+          python3 - <<'PYFIX'
+          from pathlib import Path
+
+          p = Path("/home/runner/twrp/bootable/recovery/Android.mk")
+          text = p.read_text()
+          old = "ifeq ($(PROJECT_PATH_AGREES),true)"
+          new = "ifeq (true,true)"
+
+          if old in text:
+              text = text.replace(old, new, 1)
+              p.write_text(text)
+              print("Enabled the recovery module for bootable/recovery")
+          elif new in text and "LOCAL_MODULE := recovery" in text:
+              print("Recovery module path guard was already fixed")
+          else:
+              raise SystemExit("ERROR: expected TWRP recovery module guard not found")
+
+          if "LOCAL_MODULE := recovery" not in text:
+              raise SystemExit("ERROR: recovery module definition was not found")
+          PYFIX
+          grep -n -E 'ifeq \\(true,true\\)|LOCAL_MODULE := recovery' "$RECOVERY_MK" | head -10
+
       - name: Copy and Fix Device Tree
         run: |
           TARGET_DIR="$HOME/twrp/device/lge/b2lds"
@@ -168,6 +197,7 @@ jobs:
           PRODUCT_BRAND := lge
           PRODUCT_MODEL := LG-D690
           PRODUCT_MANUFACTURER := lge
+          PRODUCT_PACKAGES += recovery
           MAKEEOF
 
           echo '[]' > omni.dependencies
@@ -281,6 +311,13 @@ jobs:
             exit 1
           }
           echo "mkbootfs executable built"
+
+          echo "=== Building TWRP recovery executable ==="
+          mmm bootable/recovery
+          test -x "$OUT_DIR/target/product/b2lds/obj/EXECUTABLES/recovery_intermediates/recovery" || {
+            echo "ERROR: recovery executable was not generated"
+            exit 1
+          }
 
           echo "=== Building TWRP recovery image ==="
           make -j4 recoveryimage
