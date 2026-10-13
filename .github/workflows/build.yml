@@ -218,6 +218,8 @@ jobs:
 
           source build/envsetup.sh
           lunch omni_b2lds-eng
+                  mmm external/zlib
+          test -x "$OUT_DIR/host/linux-x86/bin/minigzip" || { echo "minigzip build failed"; exit 1; }
           mkdir -p "$OUT_DIR/host/linux-x86/bin"
           ln -sf "$(command -v cp)" "$OUT_DIR/host/linux-x86/bin/acp"
           echo "=== Building MTK boot-image tool directly ==="
