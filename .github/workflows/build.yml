@@ -37,26 +37,6 @@ jobs:
 
       - name: Verify Java
         run: |
-          echo "=== Fix legacy checkpolicy linker error ==="
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("external/checkpolicy/Android.mk")
-          if not p.is_file():
-              raise SystemExit("ERROR: checkpolicy Android.mk not found")
-
-          s = p.read_text()
-          needle = "-Wno-return-type"
-
-          if "-fcommon" in s:
-              print("The -fcommon fix is already present")
-          elif s.count(needle) == 1:
-              p.write_text(s.replace(needle, needle + " -fcommon", 1))
-              print("Added -fcommon for legacy checkpolicy")
-          else:
-              raise SystemExit("ERROR: unexpected checkpolicy Android.mk")
-          PY
-
           export ANDROID_JAVA_HOME="$JAVA_HOME"
           echo "JAVA_HOME=$JAVA_HOME"
           echo "ANDROID_JAVA_HOME=$ANDROID_JAVA_HOME"
@@ -119,6 +99,42 @@ jobs:
           echo "ERROR: Source sync failed after 4 attempts"
           exit 1
 
+      - name: Fix legacy checkpolicy linker error
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$HOME/twrp"
+
+          echo "=== Fix GCC multiple-definition error in checkpolicy ==="
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path.home() / "twrp/external/checkpolicy/Android.mk"
+          if not p.is_file():
+              raise SystemExit(f"ERROR: file not found: {p}")
+
+          text = p.read_text()
+          marker = "-Wno-return-type"
+
+          if "-fcommon" in text:
+              print("The -fcommon compatibility flag is already present")
+          elif text.count(marker) == 1:
+              p.write_text(text.replace(marker, marker + " -fcommon", 1))
+              print("SUCCESS: added -fcommon to checkpolicy common_cflags")
+          else:
+              raise SystemExit(
+                  "ERROR: expected one -Wno-return-type entry in "
+                  "external/checkpolicy/Android.mk; no change made"
+              )
+
+          updated = p.read_text()
+          if "-fcommon" not in updated:
+              raise SystemExit("ERROR: -fcommon verification failed")
+          print("SUCCESS: checkpolicy Android.mk verification passed")
+          PY
+          grep -n -E 'common_cflags|Wno-return-type|fcommon' \
+            "$HOME/twrp/external/checkpolicy/Android.mk"
+
       - name: Verify required legacy source files
         run: |
           test -f "$HOME/twrp/device/common/gps/gps_us_supl.mk" || {
@@ -140,12 +156,10 @@ jobs:
           }
           python3 - <<'PYFIX'
           from pathlib import Path
-
-          p = Path("/home/runner/twrp/bootable/recovery/Android.mk")
+          p = Path.home() / "twrp/bootable/recovery/Android.mk"
           text = p.read_text()
           old = "ifeq ($(PROJECT_PATH_AGREES),true)"
           new = "ifeq (true,true)"
-
           if old in text:
               text = text.replace(old, new, 1)
               p.write_text(text)
@@ -154,11 +168,10 @@ jobs:
               print("Recovery module path guard was already fixed")
           else:
               raise SystemExit("ERROR: expected TWRP recovery module guard not found")
-
           if "LOCAL_MODULE := recovery" not in text:
               raise SystemExit("ERROR: recovery module definition was not found")
           PYFIX
-          grep -n -E 'ifeq \\(true,true\\)|LOCAL_MODULE := recovery' "$RECOVERY_MK" | head -10
+          grep -n -E 'ifeq \(true,true\)|LOCAL_MODULE := recovery' "$RECOVERY_MK" | head -10
 
       - name: Copy and Fix Device Tree
         run: |
@@ -173,10 +186,8 @@ jobs:
             done
           ' sh {} +
           grep -rlI 'b21ds' . | xargs -r sed -i 's/b21ds/b2lds/g'
-
           python3 - <<'PY'
           from pathlib import Path
-
           p = Path("BoardConfig.mk")
           text = p.read_text()
           old_out = "$(shell mkdir -p $(OUT)/obj/KERNEL_OBJ/usr)"
@@ -188,7 +199,6 @@ jobs:
               print("BoardConfig.mk KERNEL_OBJ output path already fixed")
           else:
               print("No legacy KERNEL_OBJ mkdir line found; continuing")
-
           old_mtk = "BOARD_CUSTOM_MKBOOTIMG := mtkbootimg"
           new_mtk = "BOARD_CUSTOM_MKBOOTIMG = $(HOST_OUT_EXECUTABLES)/mtkbootimg"
           if old_mtk in text:
@@ -198,7 +208,6 @@ jobs:
               print("BOARD_CUSTOM_MKBOOTIMG path already fixed")
           else:
               raise SystemExit("ERROR: BOARD_CUSTOM_MKBOOTIMG setting not found")
-
           p.write_text(text)
           PY
 
@@ -207,7 +216,6 @@ jobs:
           test -f mtkbootimg/mkbootimg.c
           test -f mtkbootimg/bootimg.h
           grep -n 'BOARD_CUSTOM_MKBOOTIMG' BoardConfig.mk
-
           cat > AndroidProducts.mk <<'MAKEEOF'
           PRODUCT_MAKEFILES := device/lge/b2lds/omni_b2lds.mk
           MAKEEOF
@@ -253,6 +261,7 @@ jobs:
           echo "Legacy Python 2 build scripts parse successfully"
 
       - name: Build TWRP
+        shell: bash
         run: |
           cd "$HOME/twrp"
           export ANDROID_JAVA_HOME="$JAVA_HOME"
@@ -261,7 +270,6 @@ jobs:
           export OUT="$OUT_DIR"
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
-
           echo "=== Java environment ==="
           echo "JAVA_HOME=$JAVA_HOME"
           echo "ANDROID_JAVA_HOME=$ANDROID_JAVA_HOME"
@@ -272,7 +280,6 @@ jobs:
           command -v python
           python --version
           python3 --version
-
           echo "=== Checking required files ==="
           test -f device/lge/b2lds/AndroidProducts.mk
           test -f device/lge/b2lds/omni_b2lds.mk
@@ -284,12 +291,10 @@ jobs:
 
           source build/envsetup.sh
           lunch omni_b2lds-eng
-
           echo "=== Bootstrap host acp helper ==="
           mkdir -p "$OUT_DIR/host/linux-x86/bin"
           ln -sf /bin/cp "$OUT_DIR/host/linux-x86/bin/acp"
           test -x "$OUT_DIR/host/linux-x86/bin/acp"
-
           echo "=== Build MTK boot-image tool ==="
           test -f device/lge/b2lds/mtkbootimg/mkbootimg.c
           test -f device/lge/b2lds/mtkbootimg/bootimg.h
@@ -304,7 +309,6 @@ jobs:
           chmod +x "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
           test -x "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
           grep -n 'BOARD_CUSTOM_MKBOOTIMG' device/lge/b2lds/BoardConfig.mk
-
           echo "=== Build zlib host tools ==="
           test -f external/zlib/Android.mk
           if ! mmm external/zlib; then
@@ -315,7 +319,6 @@ jobs:
             ln -sf /usr/bin/gzip "$OUT_DIR/host/linux-x86/bin/minigzip"
           fi
           test -x "$OUT_DIR/host/linux-x86/bin/minigzip"
-
           echo "=== Build AOSP mkbootfs ==="
           test -f system/core/cpio/Android.mk
           test -f system/core/cpio/mkbootfs.c
@@ -327,7 +330,6 @@ jobs:
 
           echo "=== Verify recovery module is registered ==="
           grep -n 'LOCAL_MODULE := recovery' bootable/recovery/Android.mk
-
           echo "=== Build TWRP recovery image ==="
           make -j4 recoveryimage
 
