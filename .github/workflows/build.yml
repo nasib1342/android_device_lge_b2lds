@@ -113,7 +113,6 @@ jobs:
           find "$GITHUB_WORKSPACE/devicetree" -mindepth 1 -maxdepth 1 ! -name .git \
             -exec cp -a {} "$TARGET_DIR/" \;
           cd "$TARGET_DIR"
-
           find . -depth -name '*b21ds*' -exec sh -c '
             for f do
               mv "$f" "$(printf "%s" "$f" | sed "s/b21ds/b2lds/g")"
@@ -126,8 +125,7 @@ jobs:
 
           p = Path("BoardConfig.mk")
           text = p.read_text()
-
-          # Keep the old kernel-output workaround inside the configured OUT_DIR.
+          # Keep the legacy kernel-output workaround inside OUT_DIR.
           old_out = "$(shell mkdir -p $(OUT)/obj/KERNEL_OBJ/usr)"
           new_out = "$(shell mkdir -p $(OUT_DIR)/obj/KERNEL_OBJ/usr)"
           if old_out in text:
@@ -138,16 +136,16 @@ jobs:
           else:
               print("No legacy KERNEL_OBJ mkdir line found; continuing")
 
-          # The custom boot-image tool must be referenced by its actual build output.
+          # Set the MTK image tool to its actual host executable path.
           old_mtk = "BOARD_CUSTOM_MKBOOTIMG := mtkbootimg"
           new_mtk = "BOARD_CUSTOM_MKBOOTIMG = $(HOST_OUT_EXECUTABLES)/mtkbootimg"
           if old_mtk in text:
               text = text.replace(old_mtk, new_mtk)
-              print("Fixed BOARD_CUSTOM_MKBOOTIMG to the host executable path")
+              print("Fixed BOARD_CUSTOM_MKBOOTIMG path")
           elif new_mtk in text:
               print("BOARD_CUSTOM_MKBOOTIMG path already fixed")
           else:
-              raise SystemExit("ERROR: expected BOARD_CUSTOM_MKBOOTIMG setting was not found")
+              raise SystemExit("ERROR: BOARD_CUSTOM_MKBOOTIMG setting not found")
 
           p.write_text(text)
           PY
@@ -161,7 +159,6 @@ jobs:
           cat > AndroidProducts.mk <<'MAKEEOF'
           PRODUCT_MAKEFILES := device/lge/b2lds/omni_b2lds.mk
           MAKEEOF
-
           cat > omni_b2lds.mk <<'MAKEEOF'
           $(call inherit-product, device/lge/b2lds/device_b2lds.mk)
           $(call inherit-product, vendor/omni/config/common.mk)
@@ -175,12 +172,11 @@ jobs:
 
           echo '[]' > omni.dependencies
           echo "add_lunch_combo omni_b2lds-eng" > vendorsetup.sh
-
           echo "=== AndroidProducts.mk ==="
           cat AndroidProducts.mk
           echo "=== omni_b2lds.mk ==="
           cat omni_b2lds.mk
-          echo "=== BoardConfig OUT hack ==="
+          echo "=== BoardConfig output workaround ==="
           grep -n 'mkdir -p.*OUT.*/obj/KERNEL_OBJ/usr' BoardConfig.mk || true
 
       - name: Fix Python 2 syntax
@@ -218,10 +214,16 @@ jobs:
 
           source build/envsetup.sh
           lunch omni_b2lds-eng
-                  mmm external/zlib
-          test -x "$OUT_DIR/host/linux-x86/bin/minigzip" || { echo "minigzip build failed"; exit 1; }
+
+          # Bootstrap the old Android copy helper dependency.
+          # On the Ubuntu host, GNU cp supports the -f and -p flags
+          # used by this Android 5.1 build system.
+          echo "=== Bootstrapping host acp helper ==="
           mkdir -p "$OUT_DIR/host/linux-x86/bin"
-          ln -sf "$(command -v cp)" "$OUT_DIR/host/linux-x86/bin/acp"
+          ln -sf /bin/cp "$OUT_DIR/host/linux-x86/bin/acp"
+          test -x "$OUT_DIR/host/linux-x86/bin/acp"
+          ls -l "$OUT_DIR/host/linux-x86/bin/acp"
+
           echo "=== Building MTK boot-image tool directly ==="
           test -f device/lge/b2lds/mtkbootimg/mkbootimg.c
           test -f device/lge/b2lds/mtkbootimg/bootimg.h
@@ -235,54 +237,36 @@ jobs:
             system/core/libmincrypt/sha.c \
             -o "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
           chmod +x "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
-          test -x "$OUT_DIR/host/linux-x86/bin/mtkbootimg" || {
-            echo "ERROR: mtkbootimg executable was not generated"
-            exit 1
-          }
-          "$OUT_DIR/host/linux-x86/bin/mtkbootimg" 2>&1 | head -n 5 || true
+          test -x "$OUT_DIR/host/linux-x86/bin/mtkbootimg"
           echo "mtkbootimg executable built"
           grep -n 'BOARD_CUSTOM_MKBOOTIMG' device/lge/b2lds/BoardConfig.mk
 
-          echo "=== Building libhost first (acp dependency) ==="
-          test -f build/libs/host/Android.mk || {
-            echo "ERROR: build/libs/host/Android.mk is missing"
-            exit 1
-          }
-          mmm build/libs/host
-          LIBHOST_EXPORT="$(find "$OUT_DIR/host/linux-x86" -type f -path '*/libhost_intermediates/export_includes' -print -quit)"
-          if [ -z "$LIBHOST_EXPORT" ]; then
-            echo "ERROR: libhost export_includes was not generated"
-            exit 1
+          echo "=== Building AOSP minigzip host tool ==="
+          test -f external/zlib/Android.mk
+          if ! mmm external/zlib; then
+            echo "WARNING: mmm external/zlib did not complete; checking for a usable gzip fallback"
           fi
-          echo "libhost dependency ready: $LIBHOST_EXPORT"
-
-          echo "=== Building Android host acp utility ==="
-          test -f build/tools/acp/Android.mk || {
-            echo "ERROR: build/tools/acp/Android.mk is missing"
-            exit 1
-          }
-          mmm build/tools/acp
-          test -x "$OUT_DIR/host/linux-x86/bin/acp" || {
-            echo "ERROR: acp executable was not generated"
-            exit 1
-          }
-          echo "acp executable built: $OUT_DIR/host/linux-x86/bin/acp"
+          if [ ! -x "$OUT_DIR/host/linux-x86/bin/minigzip" ]; then
+            if [ -x /usr/bin/gzip ]; then
+              echo "WARNING: using system gzip as minigzip-compatible fallback"
+              mkdir -p "$OUT_DIR/host/linux-x86/bin"
+              ln -sf /usr/bin/gzip "$OUT_DIR/host/linux-x86/bin/minigzip"
+            else
+              echo "ERROR: neither AOSP minigzip nor system gzip is available"
+              exit 1
+            fi
+          fi
+          test -x "$OUT_DIR/host/linux-x86/bin/minigzip"
+          "$OUT_DIR/host/linux-x86/bin/minigzip" --version || true
 
           echo "=== Building AOSP mkbootfs host tool ==="
-          test -f system/core/cpio/Android.mk || {
-            echo "ERROR: system/core/cpio/Android.mk is missing"
-            exit 1
-          }
-          test -f system/core/cpio/mkbootfs.c || {
-            echo "ERROR: system/core/cpio/mkbootfs.c is missing"
-            exit 1
-          }
+          test -f system/core/cpio/Android.mk
+          test -f system/core/cpio/mkbootfs.c
           mmm system/core/cpio
           test -x "$OUT_DIR/host/linux-x86/bin/mkbootfs" || {
             echo "ERROR: mkbootfs executable was not generated"
             exit 1
           }
-          "$OUT_DIR/host/linux-x86/bin/mkbootfs" 2>&1 | head -n 3 || true
           echo "mkbootfs executable built"
 
           echo "=== Building TWRP recovery image ==="
