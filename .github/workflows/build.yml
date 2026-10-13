@@ -320,6 +320,7 @@ jobs:
           }
 
           echo "=== Building TWRP recovery image ==="
+               make -j2 libc
           make -j4 recoveryimage
 
       - name: Upload TWRP
