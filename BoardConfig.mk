@@ -132,3 +132,9 @@ USE_MINIKIN := true
 
 # Legacy build workaround. The workflow adjusts OUT to OUT_DIR when needed.
 $(shell mkdir -p $(OUT)/obj/KERNEL_OBJ/usr)
+
+# Kernel command line for LG-D690
+BOARD_KERNEL_CMDLINE := androidboot.hardware=b2lds console=ttyMT0,921600n1 vmalloc=496M
+
+# Force LZ4 legacy compression for stock kernel compatibility
+BOARD_RAMDISK_COMPRESSION := lz4
