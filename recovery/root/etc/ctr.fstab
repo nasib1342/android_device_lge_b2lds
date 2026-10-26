@@ -1,3 +1,4 @@
+# LG-D690 verified layout: /system=p9, /cache=p10, /data=p11.
 # Android fstab file.
 # The filesystem that contains the filesystem checker binary (typically /system) cannot
 # specify MF_CHECK, and must come before any filesystems that do specify MF_CHECK
@@ -6,9 +7,9 @@
 
 /boot      		emmc  /dev/bootimg
 /recovery 		emmc  /dev/recovery
-/system    		ext4  /dev/block/mmcblk0p6
-/cache    		ext4  /dev/block/mmcblk0p7
-/data      		ext4  /dev/block/mmcblk0p8
+/system    		ext4  /dev/block/mmcblk0p9
+/cache    		ext4  /dev/block/mmcblk0p10
+/data      		ext4  /dev/block/mmcblk0p11
 /internal_sd	datamedia	/dev/null
 /sdcard	vfat	/dev/block/mmcblk1p1	/dev/block/mmcblk1	lun=sys/class/android_usb/android0/f_mass_storage/lun/file
 /usb-otg	auto	/dev/block/sda1	/dev/block/sda

@@ -63,6 +63,8 @@ def main():
     ap.add_argument('--image', required=True)
     ap.add_argument('--adbd', required=True)
     ap.add_argument('--device-rc', required=True)
+    ap.add_argument('--file-contexts', required=True)
+    ap.add_argument('--ctr-fstab', required=True)
     ap.add_argument('--output', required=True)
     opt = ap.parse_args()
     image_path = Path(opt.image)
@@ -90,7 +92,7 @@ def main():
     names = {n for n, _, _, _ in entries}
     if 'sbin/recovery' not in names or 'init.rc' not in names:
         raise SystemExit('Not a recognizable TWRP CPIO')
-    if any(n in names for n in ('sbin/adbd', 'init.recovery.b2lds.rc')):
+    if any(n in names for n in ('sbin/adbd', 'init.recovery.b2lds.rc', 'file_contexts')):
         raise SystemExit('One or more target files already exist; refusing overwrite')
     adbd = Path(opt.adbd).read_bytes()
     if adbd[:5] != b'\x7fELF\x01' or struct.unpack_from('<H', adbd, 18)[0] != 40:
@@ -98,15 +100,57 @@ def main():
     rc = Path(opt.device_rc).read_bytes()
     if b'start adbd' not in rc:
         raise SystemExit('Unexpected device-specific init.recovery.b2lds.rc')
+    # A complete generated Android 5.1 file_contexts, NOT the tiny device-only
+    # policy fragment. The generated file must correspond to this recovery's policy.
+    fc = Path(opt.file_contexts).read_bytes()
+    if b'\x00' in fc or len(fc) < 1024:
+        raise SystemExit('Refusing missing, binary or partial file_contexts')
+    context_lines = [line for line in fc.decode('utf-8').splitlines()
+                     if line.strip() and not line.lstrip().startswith('#')]
+    if len(context_lines) < 30 or not all(
+        len(line.split()) >= 2 and 'u:object_r:' in line for line in context_lines
+    ):
+        raise SystemExit('Generated file_contexts is not a complete text policy')
+    ctr = Path(opt.ctr_fstab).read_bytes()
+    if b'\x00' in ctr or len(ctr) < 200:
+        raise SystemExit('Invalid ctr.fstab')
+    mount_map = {}
+    for line in ctr.decode('utf-8').splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and fields[0].startswith('/'):
+            mount_map[fields[0]] = fields[2]
+    for mount, blk in {'/system': '/dev/block/mmcblk0p9',
+                       '/cache': '/dev/block/mmcblk0p10',
+                       '/data': '/dev/block/mmcblk0p11'}.items():
+        if mount_map.get(mount) != blk:
+            raise SystemExit(f'Invalid ctr.fstab: {mount} points to {mount_map.get(mount)}')
+    if 'etc/ctr.fstab' not in names:
+        raise SystemExit('Built ramdisk has no etc/ctr.fstab to replace')
     maxino = max(ino for _, ino, _, _ in entries)
     trailer = next((start for n, _, start, _ in entries if n == 'TRAILER!!!'), None)
     assert trailer is not None
-    cpio_new = (cpio[:trailer] +
+    # Replace the old ctr.fstab record instead of appending a duplicate name.
+    # Keep all other CPIO records byte-for-byte identical.
+    cpio_parts = []
+    for name, ino, start, end in entries:
+        if name == 'TRAILER!!!':
+            break
+        if name == 'etc/ctr.fstab':
+            prev_mode = int(cpio[start+14:start+22], 16)
+            if (prev_mode & 0o170000) != 0o100000:
+                raise SystemExit('Unexpected type for etc/ctr.fstab')
+            cpio_parts.append(newc(name, ctr, prev_mode, ino))
+        else:
+            cpio_parts.append(cpio[start:end])
+    cpio_new = (b''.join(cpio_parts) +
                 newc('sbin/adbd', adbd, 0o100755, maxino + 1) +
                 newc('init.recovery.b2lds.rc', rc, 0o100644, maxino + 2) +
+                newc('file_contexts', fc, 0o100644, maxino + 3) +
                 cpio[trailer:])
     names_new = {n for n, _, _, _ in entries_of(cpio_new)}
-    assert {'sbin/adbd', 'init.recovery.b2lds.rc'}.issubset(names_new)
+    assert {'sbin/adbd', 'init.recovery.b2lds.rc', 'file_contexts', 'etc/ctr.fstab'}.issubset(names_new)
+    if len(names_new) != len(entries) + 3:  # three additions and one in-place replacement
+        raise SystemExit('Unexpected CPIO entry count')
     with tempfile.TemporaryDirectory() as td:
         raw = Path(td) / 'ramdisk.cpio'
         comp = Path(td) / 'ramdisk.lz4'
@@ -137,7 +181,8 @@ def main():
     output_path.write_bytes(new_image)
     print('LZ4 Legacy magic: PASS')
     print('LZ4 roundtrip: PASS')
-    print('Added: sbin/adbd, init.recovery.b2lds.rc')
+    print('Added: sbin/adbd, init.recovery.b2lds.rc, file_contexts')
+    print('Replaced: etc/ctr.fstab with verified LG partition map')
     print('Original kernel unchanged:', len(kernel), 'bytes')
     print('Final image:', len(new_image), 'bytes')
     print('SHA256:', hashlib.sha256(new_image).hexdigest())

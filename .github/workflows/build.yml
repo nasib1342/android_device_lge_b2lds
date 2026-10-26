@@ -413,6 +413,50 @@ jobs:
           echo "BUILT_ADBD=$ADBD" >> "$GITHUB_ENV"
           file "$ADBD"
 
+      - name: Build full Android 5.1 SELinux file_contexts
+        shell: bash
+        run: |
+          set -eo pipefail
+          cd "$HOME/twrp"
+          export ANDROID_JAVA_HOME="$JAVA_HOME"
+          export PATH="$HOME/bin:$JAVA_HOME/bin:$PATH"
+          export OUT_DIR="$HOME/twrp/out"
+          export OUT="$OUT_DIR"
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+          # Android 5.1 envsetup references unset variables; do not set -u.
+          source build/envsetup.sh
+          lunch omni_b2lds-eng
+          make -j4 file_contexts
+          PROD="$OUT_DIR/target/product/b2lds"
+          FC=""
+          for candidate in \
+            "$PROD/root/file_contexts" \
+            "$PROD/obj/ETC/file_contexts_intermediates/file_contexts"; do
+            if [ -s "$candidate" ]; then
+              FC="$candidate"
+              break
+            fi
+          done
+          if [ -z "$FC" ]; then
+            echo "ERROR: Full, generated Android 5.1 file_contexts not found"
+            find "$PROD" -iname '*file_contexts*' -print | head -30 || true
+            exit 1
+          fi
+          python3 - "$FC" <<'PYFC'
+          from pathlib import Path
+          import sys
+          data = Path(sys.argv[1]).read_bytes()
+          lines = [x for x in data.decode('utf-8').splitlines()
+                   if x.strip() and not x.lstrip().startswith('#')]
+          if b'\x00' in data or len(data) < 1024 or len(lines) < 30:
+              raise SystemExit('ERROR: Generated file_contexts is incomplete or binary')
+          if not all(len(x.split()) >= 2 and 'u:object_r:' in x for x in lines):
+              raise SystemExit('ERROR: Unexpected file_contexts format')
+          print('SELinux file_contexts generated:', len(data), 'bytes,', len(lines), 'rules')
+          PYFC
+          echo "BUILT_FILE_CONTEXTS=$FC" >> "$GITHUB_ENV"
+
       - name: Repack recovery ramdisk as LG LZ4 Legacy
         shell: bash
         run: |
@@ -423,10 +467,16 @@ jobs:
           test -n "${BUILT_ADBD:-}"
           test -s "$BUILT_ADBD"
           test -s "$RC"
+          test -n "${BUILT_FILE_CONTEXTS:-}"
+          test -s "$BUILT_FILE_CONTEXTS"
+          CTR="$GITHUB_WORKSPACE/devicetree/recovery/root/etc/ctr.fstab"
+          test -s "$CTR"
           python3 "$GITHUB_WORKSPACE/devicetree/scripts/repack_recovery_v3.py" \
             --image "$IMG" \
             --adbd "$BUILT_ADBD" \
             --device-rc "$RC" \
+            --file-contexts "$BUILT_FILE_CONTEXTS" \
+            --ctr-fstab "$CTR" \
             --output "$IMG.lz4.new"
           mv "$IMG.lz4.new" "$IMG"
 

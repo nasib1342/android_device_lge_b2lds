@@ -94,6 +94,39 @@ def parse_cpio(raw, err, warn):
             err('/sbin/adbd is not executable ELF32')
     if 'init.recovery.b2lds.rc' not in entries:
         err('Required init.recovery.b2lds.rc is missing')
+    if 'file_contexts' not in entries:
+        err('Full SELinux /file_contexts is missing from recovery ramdisk')
+    else:
+        _, fc = entries['file_contexts']
+        try:
+            lines = [x for x in fc.decode('utf-8').splitlines()
+                     if x.strip() and not x.lstrip().startswith('#')]
+            if len(fc) < 1024 or len(lines) < 30 or not all(
+                len(x.split()) >= 2 and 'u:object_r:' in x for x in lines
+            ):
+                err('file_contexts appears incomplete or invalid')
+        except UnicodeDecodeError:
+            err('file_contexts is not text in this Android 5.1 recovery')
+    if 'etc/ctr.fstab' not in entries:
+        err('etc/ctr.fstab missing')
+    else:
+        _, fs = entries['etc/ctr.fstab']
+        try:
+            mounts = {}
+            for line in fs.decode('utf-8').splitlines():
+                parts = line.split()
+                if len(parts) >= 3 and parts[0].startswith('/'):
+                    mounts[parts[0]] = parts[2]
+            for mount, expected in {
+                '/system': '/dev/block/mmcblk0p9',
+                '/cache': '/dev/block/mmcblk0p10',
+                '/data': '/dev/block/mmcblk0p11',
+            }.items():
+                if mounts.get(mount) != expected:
+                    err('Wrong ctr.fstab mapping for %s: %s' %
+                        (mount, mounts.get(mount)))
+        except UnicodeDecodeError:
+            err('ctr.fstab is not text')
     for line in rc.splitlines():
         if line.strip().startswith('import '):
             imp = line.strip().split(None, 1)[1].lstrip('/')
