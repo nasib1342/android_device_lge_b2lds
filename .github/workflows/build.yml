@@ -413,6 +413,13 @@ jobs:
           echo "BUILT_ADBD=$ADBD" >> "$GITHUB_ENV"
           file "$ADBD"
 
+      - name: Fix legacy host archive extraction (libselinux/libpcre)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/devicetree/scripts/fix_legacy_host_ar.py" \
+            "$HOME/twrp/build/core/definitions.mk"
+
       - name: Build full Android 5.1 SELinux file_contexts
         shell: bash
         run: |
