@@ -88,6 +88,12 @@ def parse_cpio(raw, err, warn):
     rc = entries.get('init.rc', (0, b''))[1].decode('utf-8', 'replace')
     if 'service adbd /sbin/adbd' in rc and 'sbin/adbd' not in entries:
         err('init.rc uses /sbin/adbd but executable is missing')
+    elif 'sbin/adbd' in entries:
+        adbd_mode, adbd_data = entries['sbin/adbd']
+        if (adbd_mode & 0o170000) != 0o100000 or not (adbd_mode & 0o111) or adbd_data[:5] != b'\x7fELF\x01':
+            err('/sbin/adbd is not executable ELF32')
+    if 'init.recovery.b2lds.rc' not in entries:
+        err('Required init.recovery.b2lds.rc is missing')
     for line in rc.splitlines():
         if line.strip().startswith('import '):
             imp = line.strip().split(None, 1)[1].lstrip('/')
@@ -152,7 +158,7 @@ def main():
     # Hash is evaluated only for unwrapped images with no device-tree segment.
     if not img[ro:ro + rsz].startswith(MTK_MAGIC) and second_size == 0:
         if digest != img[576:596]:
-            warn('Android v0 SHA1 header differs from expected value')
+            err('Android v0 SHA1 header differs from expected value')
         else:
             print('Header SHA1: MATCH')
     if ramdisk.startswith(LZ4_LEGACY):

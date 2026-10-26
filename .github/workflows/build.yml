@@ -368,6 +368,68 @@ jobs:
           echo "=== Build TWRP recovery image ==="
           make -j4 recoveryimage
 
+      - name: Build genuine ARM32 adbd for recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$HOME/twrp"
+          export ANDROID_JAVA_HOME="$JAVA_HOME"
+          export PATH="$HOME/bin:$JAVA_HOME/bin:$PATH"
+          export OUT_DIR="$HOME/twrp/out"
+          export OUT="$OUT_DIR"
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+          source build/envsetup.sh
+          lunch omni_b2lds-eng
+          make -j4 adbd
+          # Android 5.1 normally installs adbd into system/bin, but some
+          # recovery trees also copy it into recovery/root/sbin.
+          PROD="$OUT_DIR/target/product/b2lds"
+          ADBD=""
+          for candidate in \
+            "$PROD/recovery/root/sbin/adbd" \
+            "$PROD/system/bin/adbd" \
+            "$PROD/root/sbin/adbd"; do
+            if [ -s "$candidate" ]; then
+              ADBD="$candidate"
+              break
+            fi
+          done
+          if [ -z "$ADBD" ]; then
+            echo "ERROR: make adbd succeeded but no ARM adbd output was found"
+            find "$PROD" -name adbd -print || true
+            exit 1
+          fi
+          python3 - "$ADBD" <<'PYCHECK'
+          from pathlib import Path
+          import struct, sys
+          p = Path(sys.argv[1])
+          data = p.read_bytes()
+          if (data[:5] != b'\x7fELF\x01' or
+              struct.unpack_from('<H', data, 18)[0] != 40):
+              raise SystemExit(f'ERROR: adbd is not ARM32 ELF: {p}')
+          print('Validated ARM32 adbd:', p, len(data), 'bytes')
+          PYCHECK
+          echo "BUILT_ADBD=$ADBD" >> "$GITHUB_ENV"
+          file "$ADBD"
+
+      - name: Repack recovery ramdisk as LG LZ4 Legacy
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMG="$HOME/twrp/out/target/product/b2lds/recovery.img"
+          RC="$GITHUB_WORKSPACE/devicetree/rootdir/init.recovery.b2lds.rc"
+          test -s "$IMG"
+          test -n "${BUILT_ADBD:-}"
+          test -s "$BUILT_ADBD"
+          test -s "$RC"
+          python3 "$GITHUB_WORKSPACE/devicetree/scripts/repack_recovery_v3.py" \
+            --image "$IMG" \
+            --adbd "$BUILT_ADBD" \
+            --device-rc "$RC" \
+            --output "$IMG.lz4.new"
+          mv "$IMG.lz4.new" "$IMG"
+
       - name: Audit built recovery (no flashing)
         shell: bash
         run: |
