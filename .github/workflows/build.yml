@@ -371,7 +371,7 @@ jobs:
       - name: Build genuine ARM32 adbd for recovery
         shell: bash
         run: |
-          set -euo pipefail
+          set -eo pipefail
           cd "$HOME/twrp"
           export ANDROID_JAVA_HOME="$JAVA_HOME"
           export PATH="$HOME/bin:$JAVA_HOME/bin:$PATH"
