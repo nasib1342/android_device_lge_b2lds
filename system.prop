@@ -3,7 +3,7 @@
 #
 
 
-ro.hardware=mt6582
+ro.hardware=b2lds
 
 rild.libpath=/system/lib/mtk-ril.so
 rild.libargs=-d /dev/ttyC0
