@@ -19,7 +19,8 @@ TARGET_BOOTLOADER_BOARD_NAME := mt6582
 TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/prebuilt/kernel
 BOARD_KERNEL_BASE := 0x80000000
 BOARD_KERNEL_PAGESIZE := 2048
-BOARD_MKBOOTIMG_ARGS := --base 0x80000000 --pagesize 2048 --kernel_offset 0x00008000 --ramdisk_offset 0x04000000 --tags_offset 0x00000100 --mtk 1
+# BOOT image args belong in BoardConfig.mk only. Do NOT add --mtk 1:
+# mtkbootimg would prepend a 512-byte MTK header to the verified stock zImage.
 
 # Recovery
 TARGET_RECOVERY_FSTAB := $(LOCAL_PATH)/recovery/recovery.fstab
